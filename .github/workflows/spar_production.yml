@@ -122,7 +122,7 @@ jobs:
               ${{ vars.SSH_USER }}@${{ vars.SSH_HOST }} \
               "wsl -d Ubuntu -- tar -xzf /mnt/c/stocktake-staging.tar.gz -C /home/stocktake/app"
 
-      # ── 7. Build and restart containers ──────────────────────────────────────
+      # ── 7. Build, start, and wait for healthy ────────────────────────────────
       - name: Deploy containers
         run: |
           ssh -i ~/.ssh/deploy_key \
@@ -135,37 +135,14 @@ jobs:
           docker compose pull --ignore-pull-failures
           echo "→ Building and starting services..."
           docker compose up --build -d --remove-orphans
+          echo "→ Waiting for API to become healthy..."
+          timeout 120 bash -c 'until docker inspect --format="{{.State.Health.Status}}" stocktake-api | grep -q "healthy"; do sleep 3; echo "  waiting..."; done'
+          echo "→ Cleaning up old images..."
           docker image prune -f
-          echo "✓ Containers started"
+          echo "✓ Deployment complete"
           WSLEOF
 
-      # ── 8. Wait for all services healthy ────────────────────────────────────
-      - name: Wait for services to be healthy
-        run: |
-          ssh -i ~/.ssh/deploy_key \
-              -p ${{ vars.SSH_PORT }} \
-              ${{ vars.SSH_USER }}@${{ vars.SSH_HOST }} \
-              "wsl -d Ubuntu -- bash" << 'WSLEOF'
-          cd /home/stocktake/app
-          echo "Waiting for services to become healthy..."
-          for i in $(seq 1 40); do
-            sleep 5
-            API_OK=0
-            WEB_OK=0
-            docker exec stocktake-api wget -qO /dev/null http://localhost:8080/health > /dev/null 2>&1 && API_OK=1 || true
-            [ "$(docker inspect --format='{{.State.Health.Status}}' stocktake-web 2>/dev/null)" = "healthy" ] && WEB_OK=1 || true
-            echo "Attempt $i: api=$API_OK web=$WEB_OK"
-            if [ "$API_OK" = "1" ] && [ "$WEB_OK" = "1" ]; then
-              echo "All core services healthy"
-              exit 0
-            fi
-          done
-          echo "Timed out waiting for services"
-          docker compose logs --tail=30
-          exit 1
-          WSLEOF
-
-      # ── 9. Verify stack responding through nginx ─────────────────────────────
+      # ── 8. Verify stack responding through nginx ──────────────────────────────
       - name: Verify stack is responding
         run: |
           ssh -i ~/.ssh/deploy_key \

@@ -80,6 +80,9 @@ func (h *Handler) UpdateSession(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	if err := h.requireMutableSession(c); err != nil {
+		return
+	}
 	sess, err := h.svc.UpdateSession(c.Request.Context(), c.Param("id"), req.WorksheetSeqNo)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -185,6 +188,9 @@ func (h *Handler) AddCounter(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	if err := h.requireMutableSession(c); err != nil {
+		return
+	}
 	counter, err := h.svc.UpsertCounter(c.Request.Context(), req.Name, req.Mobile)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -198,6 +204,9 @@ func (h *Handler) AddCounter(c *gin.Context) {
 }
 
 func (h *Handler) RemoveCounter(c *gin.Context) {
+	if err := h.requireMutableSession(c); err != nil {
+		return
+	}
 	if err := h.svc.RemoveCounter(c.Request.Context(), c.Param("id"), c.Param("counter_id")); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -316,4 +325,21 @@ func (h *Handler) GetSessionItemByBarcode(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, item)
+}
+
+// requireMutableSession fetches the session and returns 409 if it is POSTED or
+// ABORTED. Call at the top of any handler that modifies session data. Returns
+// a non-nil error (and writes the response) when the check fails.
+func (h *Handler) requireMutableSession(c *gin.Context) error {
+	sess, err := h.svc.GetSession(c.Request.Context(), c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "session not found"})
+		return err
+	}
+	if sess.Status == StatusPosted || sess.Status == StatusAborted {
+		err := fmt.Errorf("session is %s and cannot be modified", sess.Status)
+		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+		return err
+	}
+	return nil
 }

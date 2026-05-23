@@ -3,6 +3,7 @@ package store
 import (
 	"encoding/csv"
 	"fmt"
+	"html"
 	"net/http"
 	"strings"
 
@@ -232,7 +233,7 @@ func buildLabelSheet(bins []Bin) string {
 		`<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" viewBox="0 0 %d %d">`,
 		pageW, pageH, pageW, pageH))
 	sb.WriteString(`<style>text{font-family:monospace;font-size:11px;}` +
-		`@media print{svg{width:100%%;height:auto;}}</style>`)
+		`@media print{svg{width:100%;height:auto;}}</style>`)
 	sb.WriteString(fmt.Sprintf(`<rect width="%d" height="%d" fill="#f9f9f9"/>`, pageW, pageH))
 
 	for i, bin := range bins {
@@ -257,9 +258,9 @@ func buildLabelSVGFragment(bin Bin, x, y, w, h int) string {
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf(`<rect x="%d" y="%d" width="%d" height="%d" fill="white" stroke="#333" stroke-width="1"/>`, x, y, w, h))
 	sb.WriteString(fmt.Sprintf(`<text x="%d" y="%d" text-anchor="middle" font-size="14" font-weight="bold">%s</text>`,
-		x+w/2, y+20, bin.BinCode))
+		x+w/2, y+20, html.EscapeString(bin.BinCode)))
 	sb.WriteString(fmt.Sprintf(`<text x="%d" y="%d" text-anchor="middle" font-size="10" fill="#666">%s</text>`,
-		x+w/2, y+35, bin.BinName))
+		x+w/2, y+35, html.EscapeString(bin.BinName)))
 	barX := x + 10
 	for i := 0; i < 40; i++ {
 		barW := 1
@@ -274,6 +275,6 @@ func buildLabelSVGFragment(bin Bin, x, y, w, h int) string {
 		barX += barW + 1
 	}
 	sb.WriteString(fmt.Sprintf(`<text x="%d" y="%d" text-anchor="middle" font-size="8">%s</text>`,
-		x+w/2, y+h-8, bin.Barcode))
+		x+w/2, y+h-8, html.EscapeString(bin.Barcode)))
 	return sb.String()
 }

@@ -67,7 +67,9 @@ export default function StoreLayoutPage() {
     const token = localStorage.getItem('st_token')
     const res = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
     if (!res.ok) { setError('Failed to download label'); return }
-    const blob = await res.blob()
+    const text = await res.text()
+    // Force image/svg+xml so browsers render the SVG rather than parsing it as XML
+    const blob = new Blob([text], { type: 'image/svg+xml' })
     const objectUrl = URL.createObjectURL(blob)
     if (openInTab) {
       window.open(objectUrl, '_blank')

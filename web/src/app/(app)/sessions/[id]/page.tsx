@@ -154,7 +154,17 @@ async function confirmSubmit(e: React.FormEvent) {
     setSuccess('Session submitted to LS successfully.')
     setSession(await sessionsApi.get(id))
     if (result.export_url) {
-      window.open(result.export_url, '_blank')
+      const token = localStorage.getItem('st_token')
+      const res = await fetch(result.export_url, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+      if (res.ok) {
+        const blob = await res.blob()
+        const objectUrl = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = objectUrl
+        a.download = `stockcount-${id}.xlsx`
+        a.click()
+        setTimeout(() => URL.revokeObjectURL(objectUrl), 10000)
+      }
     }
   } catch (err: unknown) {
     setError(err instanceof Error ? err.message : 'Submit failed')

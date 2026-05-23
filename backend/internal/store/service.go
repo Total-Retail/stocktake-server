@@ -95,6 +95,13 @@ func (s *service) CreateBin(ctx context.Context, b Bin) (*Bin, error) {
 }
 
 func (s *service) BulkImportLayout(ctx context.Context, storeID string, importRows []LayoutImportRow) error {
+	// Fetch the store code once so barcodes are globally unique across stores.
+	var st Store
+	if err := s.db.WithContext(ctx).Select("store_code").First(&st, "id = ?", storeID).Error; err != nil {
+		return fmt.Errorf("fetch store: %w", err)
+	}
+	storePrefix := st.StoreCode
+
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		areaMap := map[string]string{}
 		aisleMap := map[string]string{}
@@ -123,11 +130,13 @@ func (s *service) BulkImportLayout(ctx context.Context, storeID string, importRo
 				aisleMap[aisleKey] = a.ID
 			}
 
-			barcode := fmt.Sprintf("BIN-%s-%s", row.AisleCode, row.BinCode)
+			// Include store prefix so barcodes are unique even when multiple stores
+			// share the same layout template (same aisle/bin codes).
+			barcode := fmt.Sprintf("%s-%s-%s", storePrefix, row.AisleCode, row.BinCode)
 			b := Bin{AisleID: aisleMap[aisleKey], BinCode: row.BinCode, BinName: row.BinName, Barcode: barcode}
 			if err := tx.Clauses(clause.OnConflict{
 				Columns:   []clause.Column{{Name: "aisle_id"}, {Name: "bin_code"}},
-				DoUpdates: clause.AssignmentColumns([]string{"bin_name"}),
+				DoUpdates: clause.AssignmentColumns([]string{"bin_name", "barcode"}),
 			}).Create(&b).Error; err != nil {
 				return fmt.Errorf("upsert bin %s: %w", row.BinCode, err)
 			}

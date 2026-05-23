@@ -3,7 +3,8 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 import { sessions as sessionsApi, stores, ls } from '@/lib/api'
-import type { Session, Counter, Store } from '@/types'
+import type { Session, Counter, Store, SessionStatus } from '@/types'
+import { SESSION_TYPE_LABELS, SESSION_STATUS_LABELS, SESSION_STATUS_COLOURS } from '@/types'
 import { Button, Card, CardBody, CardHeader, Spinner, Empty, StatCard } from '@/components/ui'
 
 type Worksheet = {
@@ -14,15 +15,15 @@ type Worksheet = {
 }
 
 const STATUS_ACTIONS: Record<string, { label: string; next: string; variant: 'primary' | 'danger' | 'secondary' }[]> = {
-  DRAFT:             [{ label: 'Activate session',                    next: 'ACTIVE',                  variant: 'primary'   }],
-  ACTIVE:            [{ label: 'Complete counting & pull theoreticals', next: 'complete_and_pull',      variant: 'primary'   }],
-  COUNTING_COMPLETE: [{ label: 'Pull theoretical stock',               next: 'pull_theoretical',        variant: 'primary'   }],
-  PENDING_REVIEW:    [{ label: 'Submit to LS / BC',                    next: 'submit',                  variant: 'primary'   }],
-  SUBMITTED: [],
-  CLOSED:    [],
+  DRAFT:          [{ label: 'Activate',                               next: 'ACTIVE',               variant: 'primary'   }],
+  ACTIVE:         [{ label: 'Complete counting & pull theoreticals',  next: 'complete_and_pull',    variant: 'primary'   }],
+  PENDING_REVIEW: [{ label: 'Submit to LS',                           next: 'submit',               variant: 'primary'   }],
+  POSTED:         [],
+  REOPENED:       [{ label: 'Complete counting & pull theoreticals',  next: 'complete_and_pull',    variant: 'primary'   }],
+  ABORTED:        [],
 }
 
-const EDITABLE_STATUSES = ['DRAFT', 'ACTIVE', 'COUNTING_COMPLETE']
+const EDITABLE_STATUSES = ['DRAFT', 'ACTIVE', 'REOPENED']
 
 export default function SessionOverviewPage() {
   const { id } = useParams<{ id: string }>()
@@ -37,6 +38,11 @@ export default function SessionOverviewPage() {
   const [resendingId, setResendingId]     = useState<string | null>(null)
   const [wsLoading, setWsLoading]         = useState(false)
   const [resyncLoading, setResyncLoading] = useState(false)
+  const [abortLoading, setAbortLoading]   = useState(false)
+  const [showAbortDialog, setShowAbortDialog] = useState(false)
+  const [abortReason, setAbortReason]     = useState('')
+  const [showSubmitDialog, setShowSubmitDialog] = useState(false)
+  const [submitConfirmText, setSubmitConfirmText] = useState('')
 
   // selectedWorksheetSeqNo: 0 = none
   const [selectedWorksheetSeqNo, setSelectedWorksheetSeqNo] = useState(0)
@@ -80,19 +86,15 @@ async function handleAction(action: string) {
   setError('')
   setSuccess('')
   try {
-    if (action === 'complete_and_pull') {
-      // Mark counting complete then pull theoreticals in one UX step
-      await sessionsApi.updateStatus(id, 'COUNTING_COMPLETE')
+    if (action === 'submit') {
+      // Open confirmation dialog instead — handled by confirmSubmit
+      setShowSubmitDialog(true)
+      setActionLoading(false)
+      return
+    } else if (action === 'complete_and_pull') {
       await sessionsApi.pullTheoretical(id)
       await sessionsApi.updateStatus(id, 'PENDING_REVIEW')
-      setSuccess('Counting marked complete, theoreticals pulled. Session is now in Pending Review.')
-    } else if (action === 'pull_theoretical') {
-      await sessionsApi.pullTheoretical(id)
-      await sessionsApi.updateStatus(id, 'PENDING_REVIEW')
-      setSuccess('Theoretical stock pulled. Session is now in Pending Review.')
-    } else if (action === 'submit') {
-      await sessionsApi.submit(id)
-      setSuccess('Session submitted to LS / BC successfully.')
+      setSuccess('Theoreticals pulled. Session is now in Pending Review.')
     } else {
       await sessionsApi.updateStatus(id, action)
       setSuccess('Session status updated.')
@@ -100,6 +102,62 @@ async function handleAction(action: string) {
     setSession(await sessionsApi.get(id))
   } catch (err: unknown) {
     setError(err instanceof Error ? err.message : 'Action failed')
+  } finally {
+    setActionLoading(false)
+  }
+}
+
+async function handleAbort(e: React.FormEvent) {
+  e.preventDefault()
+  if (abortReason.trim().length < 10) { setError('Please provide a reason (at least 10 characters)'); return }
+  setAbortLoading(true)
+  setError('')
+  setSuccess('')
+  try {
+    await sessionsApi.abort(id, abortReason)
+    setShowAbortDialog(false)
+    setAbortReason('')
+    setSuccess('Session aborted.')
+    setSession(await sessionsApi.get(id))
+  } catch (err: unknown) {
+    setError(err instanceof Error ? err.message : 'Abort failed')
+  } finally {
+    setAbortLoading(false)
+  }
+}
+
+async function handleReopen() {
+  setActionLoading(true)
+  setError('')
+  setSuccess('')
+  try {
+    await sessionsApi.reopen(id)
+    setSuccess('Session reopened. LS worksheet lines have been cleared.')
+    setSession(await sessionsApi.get(id))
+  } catch (err: unknown) {
+    setError(err instanceof Error ? err.message : 'Reopen failed')
+  } finally {
+    setActionLoading(false)
+  }
+}
+
+async function confirmSubmit(e: React.FormEvent) {
+  e.preventDefault()
+  if (submitConfirmText !== 'SUBMIT') return
+  setActionLoading(true)
+  setError('')
+  setSuccess('')
+  try {
+    const result = await sessionsApi.submit(id)
+    setShowSubmitDialog(false)
+    setSubmitConfirmText('')
+    setSuccess('Session submitted to LS successfully.')
+    setSession(await sessionsApi.get(id))
+    if (result.export_url) {
+      window.open(result.export_url, '_blank')
+    }
+  } catch (err: unknown) {
+    setError(err instanceof Error ? err.message : 'Submit failed')
   } finally {
     setActionLoading(false)
   }
@@ -183,8 +241,9 @@ async function handleAction(action: string) {
   if (!session) return <div className="p-6 text-gray-500">Session not found.</div>
 
   const actions = STATUS_ACTIONS[session.status] ?? []
-  const canModifyCounters = session.status === 'DRAFT' || session.status === 'ACTIVE'
+  const canModifyCounters = session.status === 'DRAFT' || session.status === 'ACTIVE' || session.status === 'REOPENED'
   const canEditWorksheet  = EDITABLE_STATUSES.includes(session.status)
+  const canAbort          = session.status === 'DRAFT' || session.status === 'ACTIVE' || session.status === 'PENDING_REVIEW' || session.status === 'REOPENED'
 
   // Find the display name for the currently linked worksheet
   const linkedWorksheet = allWorksheets.find(
@@ -197,10 +256,11 @@ async function handleAction(action: string) {
       {success && <div className="bg-teal-50 border border-teal-200 text-teal-700 text-sm px-4 py-3 rounded-lg">{success}</div>}
 
       {/* Stats */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
         <StatCard label="Store"    value={store?.store_name ?? '—'} />
-        <StatCard label="Date"     value={session.session_date} />
-        <StatCard label="Type"     value={session.type} />
+        <StatCard label="Date"     value={session.stock_count_date} />
+        <StatCard label="Type"     value={SESSION_TYPE_LABELS[session.type] ?? session.type} />
+        <StatCard label="Status"   value={SESSION_STATUS_LABELS[session.status as SessionStatus] ?? session.status} />
         <StatCard label="Counters" value={String(counters.length)} />
       </div>
 
@@ -271,7 +331,7 @@ async function handleAction(action: string) {
       </Card>
 
       {/* Session actions */}
-      {actions.length > 0 && (
+      {(actions.length > 0 || canAbort || session.status === 'POSTED') && (
         <Card>
           <CardHeader><h2 className="text-sm font-semibold text-gray-700">Actions</h2></CardHeader>
           <CardBody>
@@ -286,7 +346,40 @@ async function handleAction(action: string) {
                   {a.label}
                 </Button>
               ))}
+              {session.status === 'POSTED' && (
+                <Button variant="secondary" loading={actionLoading} onClick={handleReopen}>
+                  Reopen session
+                </Button>
+              )}
+              {canAbort && (
+                <Button variant="danger" onClick={() => setShowAbortDialog(true)}>
+                  Abort session
+                </Button>
+              )}
             </div>
+
+            {/* Abort confirmation dialog */}
+            {showAbortDialog && (
+              <form onSubmit={handleAbort} className="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg space-y-3">
+                <p className="text-sm font-medium text-red-800">Abort this session?</p>
+                <p className="text-xs text-red-600">
+                  The session will be archived as ABORTED. This cannot be undone.
+                </p>
+                <textarea
+                  value={abortReason}
+                  onChange={e => setAbortReason(e.target.value)}
+                  placeholder="Reason for aborting (required, at least 10 characters)"
+                  required
+                  minLength={10}
+                  rows={3}
+                  className="w-full px-3 py-2 border border-red-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-red-400"
+                />
+                <div className="flex gap-2">
+                  <Button type="submit" variant="danger" size="sm" loading={abortLoading}>Confirm abort</Button>
+                  <Button type="button" variant="secondary" size="sm" onClick={() => { setShowAbortDialog(false); setAbortReason('') }}>Cancel</Button>
+                </div>
+              </form>
+            )}
           </CardBody>
         </Card>
       )}
@@ -370,6 +463,57 @@ async function handleAction(action: string) {
             </form>
           </CardBody>
         </Card>
+      )}
+
+      {/* Submit confirmation modal */}
+      {showSubmitDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6 space-y-4">
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900">Confirm submission</h2>
+              <p className="text-sm text-gray-500 mt-1">
+                This will post the final counts to LS and generate the Excel export.
+                The session will move to <strong>Pending Review</strong> and cannot be edited until reviewed.
+              </p>
+            </div>
+            <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-sm text-amber-800">
+              Please review the variance report before submitting. Pending recount items should be resolved first.
+            </div>
+            <form onSubmit={confirmSubmit} className="space-y-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Type <span className="font-mono font-bold text-gray-900">SUBMIT</span> to confirm
+                </label>
+                <input
+                  type="text"
+                  value={submitConfirmText}
+                  onChange={e => setSubmitConfirmText(e.target.value)}
+                  placeholder="SUBMIT"
+                  autoFocus
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-teal-500"
+                />
+              </div>
+              <div className="flex gap-2 justify-end">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => { setShowSubmitDialog(false); setSubmitConfirmText('') }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  size="sm"
+                  loading={actionLoading}
+                  disabled={submitConfirmText !== 'SUBMIT'}
+                >
+                  Submit to LS
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
     </div>
   )

@@ -49,12 +49,12 @@ func (h *Handler) AdminLogin(c *gin.Context) {
 		return
 	}
 
-	token, err := h.svc.IssueToken(admin.ID, TokenAdmin, h.adminTokenHours)
+	token, err := h.svc.IssueToken(admin.ID, TokenAdmin, h.adminTokenHours, admin.IsSuperAdmin)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to issue token"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"token": token, "admin_id": admin.ID})
+	c.JSON(http.StatusOK, gin.H{"token": token, "admin_id": admin.ID, "is_super_admin": admin.IsSuperAdmin})
 }
 
 func (h *Handler) RequestOTP(c *gin.Context) {
@@ -70,7 +70,7 @@ func (h *Handler) RequestOTP(c *gin.Context) {
 		c.JSON(http.StatusTooManyRequests, gin.H{"error": err.Error()})
 		return
 	}
-	if err := h.smsSvc.Send(c.Request.Context(), req.Mobile, "Your StockTake OTP is: "+otp+". Valid for 10 minutes."); err != nil {
+	if err := h.smsSvc.Send(c.Request.Context(), req.Mobile, "Your StockCount OTP is: "+otp+". Valid for 10 minutes."); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to send OTP"})
 		return
 	}

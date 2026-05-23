@@ -27,7 +27,7 @@ func (s *service) GetCounterPerformance(ctx context.Context, sessionID string) (
 			c.name                                                                       AS counter_name,
 			c.mobile_number                                                              AS mobile,
 			COUNT(DISTINCT cl.item_no)                                                   AS items_counted,
-			COUNT(DISTINCT bs.bay_id)                                                    AS bays_completed,
+			COUNT(DISTINCT bs.bin_id)                                                    AS bins_completed,
 			COALESCE(ROUND(
 				COUNT(DISTINCT CASE WHEN vf.id IS NOT NULL THEN cl.item_no END)::numeric
 				/ NULLIF(COUNT(DISTINCT cl.item_no), 0) * 100, 2), 0)                  AS recount_rate,

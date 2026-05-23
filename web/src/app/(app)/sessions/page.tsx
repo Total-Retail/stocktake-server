@@ -3,7 +3,8 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { sessions, stores } from '@/lib/api'
-import type { Session, Store } from '@/types'
+import type { Session, Store, SessionStatus } from '@/types'
+import { SESSION_TYPE_LABELS, SESSION_STATUS_LABELS, SESSION_STATUS_COLOURS } from '@/types'
 import { Button, Card, CardBody, StatusBadge, Spinner, Empty } from '@/components/ui'
 
 export default function SessionsPage() {
@@ -24,18 +25,18 @@ export default function SessionsPage() {
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold text-gray-900">Stock Takes</h1>
-          <p className="text-sm text-gray-500 mt-0.5">Create and manage stock take sessions</p>
+          <h1 className="text-xl font-semibold text-gray-900">Stock Counts</h1>
+          <p className="text-sm text-gray-500 mt-0.5">Create and manage stock count sessions</p>
         </div>
         <Link href="/sessions/new">
-          <Button>New stock take</Button>
+          <Button>New stock count</Button>
         </Link>
       </div>
 
       <Card>
         <CardBody className="p-0">
           {list.length === 0 ? (
-            <Empty message="No stock takes yet." />
+            <Empty message="No stock counts yet." />
           ) : (
             <table className="w-full text-sm">
               <thead className="bg-gray-50 border-b border-gray-100">
@@ -49,9 +50,13 @@ export default function SessionsPage() {
                   {list.map(sess => (
                     <tr key={sess.id} className="hover:bg-gray-50">
                       <td className="px-4 py-3 font-medium text-gray-900">{storeMap[sess.store_id] ?? sess.store_id}</td>
-                      <td className="px-4 py-3 text-gray-600">{sess.session_date}</td>
-                      <td className="px-4 py-3 text-gray-600">{sess.type}</td>
-                      <td className="px-4 py-3"><StatusBadge status={sess.status} /></td>
+                      <td className="px-4 py-3 text-gray-600">{sess.stock_count_date}</td>
+                      <td className="px-4 py-3 text-gray-600">{SESSION_TYPE_LABELS[sess.type] ?? sess.type}</td>
+                      <td className="px-4 py-3">
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${SESSION_STATUS_COLOURS[sess.status as SessionStatus] ?? 'bg-gray-100 text-gray-700'}`}>
+                          {SESSION_STATUS_LABELS[sess.status as SessionStatus] ?? sess.status}
+                        </span>
+                      </td>
                       <td className="px-4 py-3">
                         <Link href={`/sessions/${sess.id}`} className="text-teal-600 hover:text-teal-700 font-medium text-xs">
                           Open →

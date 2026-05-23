@@ -28,7 +28,7 @@ export default function AuditPage() {
     const rows = filtered.map(l => ({
       'Item No.': l.item_no,
       'Description': l.description,
-      'Bin': l.bay_code,
+      'Bin': l.bin_code,
       'Counter': l.counter_name,
       'Quantity': l.quantity,
       'Round': l.round_no === 0 ? 'Initial' : `Recount ${l.round_no}`,
@@ -78,7 +78,7 @@ export default function AuditPage() {
                   <tr key={i} className="hover:bg-gray-50">
                     <td className="px-4 py-2.5 font-mono text-xs text-gray-500">{line.item_no}</td>
                     <td className="px-4 py-2.5 text-gray-900">{line.description}</td>
-                    <td className="px-4 py-2.5 text-gray-600">{line.bay_code}</td>
+                    <td className="px-4 py-2.5 text-gray-600">{line.bin_code}</td>
                     <td className="px-4 py-2.5 text-gray-600">{line.counter_name}</td>
                     <td className="px-4 py-2.5 font-semibold text-gray-900">{line.quantity}</td>
                     <td className="px-4 py-2.5 text-gray-500 text-xs">

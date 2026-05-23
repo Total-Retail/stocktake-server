@@ -32,7 +32,7 @@ export default function LoginPage() {
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
           <p className="text-teal-600 font-semibold text-sm uppercase tracking-wide">Total Retail</p>
-          <h1 className="text-2xl font-bold text-gray-900 mt-1">StockTake</h1>
+          <h1 className="text-2xl font-bold text-gray-900 mt-1">StockCount</h1>
           <p className="text-gray-500 text-sm mt-1">Sign in to your account</p>
         </div>
 

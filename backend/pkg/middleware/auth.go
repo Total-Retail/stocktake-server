@@ -40,6 +40,7 @@ func RequireAuth(authSvc *auth.Service, allowedTypes ...auth.TokenType) gin.Hand
 		}
 		c.Set("user_id", claims.UserID)
 		c.Set("token_type", string(claims.TokenType))
+		c.Set("is_super_admin", claims.IsSuperAdmin)
 		c.Next()
 	}
 }

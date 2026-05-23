@@ -35,11 +35,10 @@ export default function NewSessionPage() {
   const [wsError, setWsError]             = useState('')
   const [loading, setLoading]             = useState(false)
   const [form, setForm] = useState({
-    store_id:               '',
-    session_date:           new Date().toISOString().slice(0, 10),
-    type:                   'FLOOR' as SessionTypeValue,
-    variance_tolerance_pct: 2.0,
-    worksheet_seq_no:       0,
+    store_id:         '',
+    stock_count_date: new Date().toISOString().slice(0, 10),
+    type:             'FLOOR' as SessionTypeValue,
+    worksheet_seq_no: 0,
   })
   const [error, setError] = useState('')
 
@@ -77,10 +76,9 @@ export default function NewSessionPage() {
     setError('')
     try {
       const payload = {
-        store_id:               form.store_id,
-        session_date:           form.session_date,
-        type:                   form.type,
-        variance_tolerance_pct: form.variance_tolerance_pct,
+        store_id:         form.store_id,
+        stock_count_date: form.stock_count_date,
+        type:             form.type,
         worksheet_no: form.worksheet_seq_no > 0
           ? String(form.worksheet_seq_no)
           : undefined,
@@ -96,7 +94,7 @@ export default function NewSessionPage() {
 
   return (
     <div className="max-w-xl mx-auto p-6 space-y-4">
-      <h1 className="text-xl font-semibold text-gray-900">New Stock Take Session</h1>
+      <h1 className="text-xl font-semibold text-gray-900">New Stock Count Session</h1>
 
       <Card>
         <CardHeader><h2 className="text-sm font-semibold text-gray-700">Session details</h2></CardHeader>
@@ -121,11 +119,11 @@ export default function NewSessionPage() {
 
             {/* Date */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Session date</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Stock count date</label>
               <input
                 type="date"
-                value={form.session_date}
-                onChange={e => set('session_date', e.target.value)}
+                value={form.stock_count_date}
+                onChange={e => set('stock_count_date', e.target.value)}
                 required
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
               />
@@ -133,7 +131,7 @@ export default function NewSessionPage() {
 
             {/* Type */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Session type</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Stock count type</label>
               <select
                 value={form.type}
                 onChange={e => set('type', e.target.value)}
@@ -143,22 +141,6 @@ export default function NewSessionPage() {
                   <option key={t.value} value={t.value}>{t.label}</option>
                 ))}
               </select>
-            </div>
-
-            {/* Variance tolerance */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Variance tolerance (%)
-              </label>
-              <input
-                type="number"
-                min={0}
-                max={100}
-                step={0.1}
-                value={form.variance_tolerance_pct}
-                onChange={e => set('variance_tolerance_pct', parseFloat(e.target.value))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
-              />
             </div>
 
             {/* Worksheet */}

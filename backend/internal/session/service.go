@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	"github.com/totalretail/stocktake/internal/auth"
+	"github.com/totalretail/stocktake/internal/export"
 	"github.com/totalretail/stocktake/internal/ls"
 	"github.com/totalretail/stocktake/internal/ws"
 	"gorm.io/gorm"
@@ -13,25 +14,26 @@ import (
 
 // CounterSessionView is a richer session response for the mobile counter app.
 type CounterSessionView struct {
-	ID           string        `json:"id"`
-	StoreID      string        `json:"store_id"`
-	StoreName    string        `json:"store_name"`
-	SessionDate  string        `json:"session_date"`
-	Type         SessionType   `json:"type"`
-	Status       SessionStatus `json:"status"`
-	BaysTotal    int           `json:"bays_total"`
-	BaysComplete int           `json:"bays_complete"`
+	ID             string        `json:"id"`
+	StoreID        string        `json:"store_id"`
+	StoreName      string        `json:"store_name"`
+	StockCountDate string        `json:"stock_count_date"`
+	Type           SessionType   `json:"type"`
+	Status         SessionStatus `json:"status"`
+	BinsTotal      int           `json:"bins_total"`
+	BinsComplete   int           `json:"bins_complete"`
+	PendingRecount int           `json:"pending_recount"`
 }
 
-// BayView is a flattened bay record with zone/aisle context for the mobile app.
-type BayView struct {
+// BinView is a flattened bin record with area/aisle context for the mobile app.
+type BinView struct {
 	ID        string `json:"id"`
-	ZoneCode  string `json:"zone_code"`
-	ZoneName  string `json:"zone_name"`
+	AreaCode  string `json:"area_code"`
+	AreaName  string `json:"area_name"`
 	AisleCode string `json:"aisle_code"`
 	AisleName string `json:"aisle_name"`
-	BayCode   string `json:"bay_code"`
-	BayName   string `json:"bay_name"`
+	BinCode   string `json:"bin_code"`
+	BinName   string `json:"bin_name"`
 	Barcode   string `json:"barcode"`
 	Submitted bool   `json:"submitted"`
 }
@@ -42,17 +44,19 @@ type Service interface {
 	CreateSession(ctx context.Context, s Session) (*Session, error)
 	UpdateSession(ctx context.Context, id string, worksheetSeqNo int) (*Session, error)
 	UpdateStatus(ctx context.Context, id string, status SessionStatus) error
+	AbortSession(ctx context.Context, id, reason, adminID string) error
+	ReopenSession(ctx context.Context, id string) error
 	AddCounter(ctx context.Context, sessionID, counterID string) error
 	RemoveCounter(ctx context.Context, sessionID, counterID string) error
 	PullTheoretical(ctx context.Context, sessionID string) error
-	SubmitToLS(ctx context.Context, sessionID string) error
+	SubmitToLS(ctx context.Context, sessionID, exportDir string) (exportPath string, err error)
 	UpsertCounter(ctx context.Context, name, mobile string) (*auth.Counter, error)
 	ListCounters(ctx context.Context, sessionID string) ([]auth.Counter, error)
 	GetCounterSessions(ctx context.Context, counterID string) ([]Session, error)
 	// Counter-specific methods (used by the mobile app)
 	GetCounterSessionViews(ctx context.Context, counterID string) ([]CounterSessionView, error)
 	GetCounterSessionView(ctx context.Context, sessionID, counterID string) (*CounterSessionView, error)
-	GetSessionBays(ctx context.Context, sessionID, counterID string) ([]BayView, error)
+	GetSessionBins(ctx context.Context, sessionID, counterID string) ([]BinView, error)
 	GetSessionItemByBarcode(ctx context.Context, sessionID, barcode string) (*SessionItem, error)
 	GetAvailableWorksheets(ctx context.Context) ([]ls.AvailableWorksheet, error)
 	GetLSStores(ctx context.Context) ([]ls.LSStore, error)
@@ -64,7 +68,6 @@ type service struct {
 	hub      *ws.Hub
 }
 
-// strVal safely dereferences a *string, returning "" if nil
 func strVal(s *string) string {
 	if s == nil {
 		return ""
@@ -72,8 +75,6 @@ func strVal(s *string) string {
 	return *s
 }
 
-// worksheetSeqNoFromSession parses the stored worksheet_no string back to int.
-// Returns 0 if nil or unparseable.
 func worksheetSeqNoFromSession(sess *Session) int {
 	if sess.WorksheetNo == nil {
 		return 0
@@ -108,16 +109,13 @@ func (s *service) CreateSession(ctx context.Context, sess Session) (*Session, er
 		var count int64
 		s.db.WithContext(ctx).Model(&Session{}).
 			Where("store_id = ? AND type = ? AND status IN ?", sess.StoreID, sess.Type,
-				[]string{"DRAFT", "ACTIVE", "COUNTING_COMPLETE", "PENDING_REVIEW"}).
+				[]string{"DRAFT", "ACTIVE", "PENDING_REVIEW"}).
 			Count(&count)
 		if count > 0 {
-			return nil, fmt.Errorf("store already has an active %s stock take session", sess.Type)
+			return nil, fmt.Errorf("store already has an active %s stock count session", sess.Type)
 		}
 	}
 	sess.Status = StatusDraft
-	if sess.VarianceTolerancePct == 0 {
-		sess.VarianceTolerancePct = 2.0
-	}
 	if err := s.db.WithContext(ctx).Create(&sess).Error; err != nil {
 		return nil, err
 	}
@@ -125,15 +123,13 @@ func (s *service) CreateSession(ctx context.Context, sess Session) (*Session, er
 	// Auto-pull theoreticals if a worksheet was linked at creation
 	if seqNo := worksheetSeqNoFromSession(&sess); seqNo > 0 {
 		if err := s.pullTheoreticalBySeqNo(ctx, sess.ID, seqNo); err != nil {
-			// Non-fatal — log and continue
-			_ = err
+			_ = err // Non-fatal — log and continue
 		}
 	}
 
 	return &sess, nil
 }
 
-// UpdateSession updates the linked worksheet (stored as string) and re-pulls theoreticals
 func (s *service) UpdateSession(ctx context.Context, id string, worksheetSeqNo int) (*Session, error) {
 	var worksheetNoStr *string
 	if worksheetSeqNo > 0 {
@@ -170,6 +166,65 @@ func (s *service) UpdateStatus(ctx context.Context, id string, status SessionSta
 	return nil
 }
 
+// AbortSession sets a session to ABORTED with a mandatory reason.
+func (s *service) AbortSession(ctx context.Context, id, reason, adminID string) error {
+	if reason == "" {
+		return fmt.Errorf("abort reason is required")
+	}
+	if err := s.db.WithContext(ctx).Model(&Session{}).
+		Where("id = ? AND status IN ?", id, []string{"DRAFT", "ACTIVE", "PENDING_REVIEW", "REOPENED"}).
+		Updates(map[string]interface{}{
+			"status":       StatusAborted,
+			"abort_reason": reason,
+			"aborted_at":   gorm.Expr("NOW()"),
+			"aborted_by":   adminID,
+		}).Error; err != nil {
+		return err
+	}
+	s.hub.Broadcast(id, ws.Event{
+		Type:      ws.EventSessionUpdated,
+		SessionID: id,
+		Payload:   map[string]string{"status": string(StatusAborted), "reason": reason},
+	})
+	return nil
+}
+
+// ReopenSession reopens a POSTED session (privileged admin only).
+// Clears the document number and LS worksheet lines.
+func (s *service) ReopenSession(ctx context.Context, id string) error {
+	sess, err := s.GetSession(ctx, id)
+	if err != nil {
+		return fmt.Errorf("session not found: %w", err)
+	}
+	if sess.Status != StatusPosted {
+		return fmt.Errorf("only POSTED sessions can be reopened")
+	}
+
+	// Clear LS worksheet lines if a worksheet is linked
+	if seqNo := worksheetSeqNoFromSession(sess); seqNo > 0 {
+		if err := s.lsClient.ClearWorksheetLines(ctx, seqNo); err != nil {
+			return fmt.Errorf("failed to clear LS worksheet lines: %w", err)
+		}
+	}
+
+	if err := s.db.WithContext(ctx).Model(&Session{}).
+		Where("id = ?", id).
+		Updates(map[string]interface{}{
+			"status":              StatusReopened,
+			"document_number":     nil,
+			"document_checked_at": nil,
+		}).Error; err != nil {
+		return err
+	}
+
+	s.hub.Broadcast(id, ws.Event{
+		Type:      ws.EventSessionUpdated,
+		SessionID: id,
+		Payload:   map[string]string{"status": string(StatusReopened)},
+	})
+	return nil
+}
+
 func (s *service) GetAvailableWorksheets(ctx context.Context) ([]ls.AvailableWorksheet, error) {
 	return s.lsClient.GetAvailableWorksheets(ctx)
 }
@@ -178,7 +233,6 @@ func (s *service) GetLSStores(ctx context.Context) ([]ls.LSStore, error) {
 	return s.lsClient.GetLSStores(ctx)
 }
 
-// PullTheoretical is the manual trigger — uses the session's stored worksheet_no
 func (s *service) PullTheoretical(ctx context.Context, sessionID string) error {
 	sess, err := s.GetSession(ctx, sessionID)
 	if err != nil {
@@ -191,8 +245,6 @@ func (s *service) PullTheoretical(ctx context.Context, sessionID string) error {
 	return s.pullTheoreticalBySeqNo(ctx, sessionID, seqNo)
 }
 
-// pullTheoreticalBySeqNo fetches lines from LS and upserts theoretical stock records.
-// It also populates SessionItems so the mobile app can look up items by barcode.
 func (s *service) pullTheoreticalBySeqNo(ctx context.Context, sessionID string, worksheetSeqNo int) error {
 	lines, err := s.lsClient.GetWorksheetLines(ctx, worksheetSeqNo)
 	if err != nil {
@@ -200,9 +252,7 @@ func (s *service) pullTheoreticalBySeqNo(ctx context.Context, sessionID string, 
 	}
 
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		// Clear and repopulate TheoreticalStock
 		tx.Where("session_id = ?", sessionID).Delete(&TheoreticalStock{})
-		// Clear and repopulate SessionItems (barcode/description/uom for mobile lookup)
 		tx.Where("session_id = ?", sessionID).Delete(&SessionItem{})
 
 		for _, line := range lines {
@@ -229,27 +279,25 @@ func (s *service) pullTheoreticalBySeqNo(ctx context.Context, sessionID string, 
 	})
 }
 
-func (s *service) SubmitToLS(ctx context.Context, sessionID string) error {
+func (s *service) SubmitToLS(ctx context.Context, sessionID, exportDir string) (string, error) {
 	sess, err := s.GetSession(ctx, sessionID)
 	if err != nil {
-		return fmt.Errorf("session not found: %w", err)
+		return "", fmt.Errorf("session not found: %w", err)
 	}
 	seqNo := worksheetSeqNoFromSession(sess)
 	if seqNo == 0 {
-		return fmt.Errorf("no worksheet linked to this session")
+		return "", fmt.Errorf("no worksheet linked to this session")
 	}
 
-	// Fetch worksheet lines so we have LineNo for each item
 	wsLines, err := s.lsClient.GetWorksheetLines(ctx, seqNo)
 	if err != nil {
-		return fmt.Errorf("fetch worksheet lines for submit: %w", err)
+		return "", fmt.Errorf("fetch worksheet lines for submit: %w", err)
 	}
 	lineNoByItem := make(map[string]int, len(wsLines))
 	for _, l := range wsLines {
 		lineNoByItem[l.ItemNo] = l.LineNo
 	}
 
-	// Use accepted counts (latest round, accepted variance flags respected)
 	type result struct {
 		ItemNo   string
 		TotalQty float64
@@ -264,14 +312,14 @@ func (s *service) SubmitToLS(ctx context.Context, sessionID string) error {
 			WHERE cl2.session_id = count_lines.session_id AND cl2.item_no = count_lines.item_no
 		)
 		GROUP BY item_no`, sessionID).Scan(&results).Error; err != nil {
-		return err
+		return "", err
 	}
 
 	var finalLines []ls.FinalCountLine
 	for _, r := range results {
 		lineNo, ok := lineNoByItem[r.ItemNo]
 		if !ok {
-			continue // item not in this worksheet — skip
+			continue
 		}
 		finalLines = append(finalLines, ls.FinalCountLine{
 			ItemNo:     r.ItemNo,
@@ -281,9 +329,29 @@ func (s *service) SubmitToLS(ctx context.Context, sessionID string) error {
 	}
 
 	if err := s.lsClient.PostFinalCounts(ctx, seqNo, finalLines); err != nil {
-		return err
+		return "", err
 	}
-	return s.UpdateStatus(ctx, sessionID, StatusSubmitted)
+
+	// Look up store name for the export header (raw query avoids import cycle)
+	type storeRow struct{ StoreName string }
+	var st storeRow
+	s.db.WithContext(ctx).Raw("SELECT store_name FROM stores WHERE id = ?", sess.StoreID).Scan(&st)
+
+	// Generate Excel export
+	exportPath, err := export.GenerateSessionExport(ctx, s.db, sessionID, st.StoreName, sess.StockCountDate, string(sess.Type), exportDir)
+	if err != nil {
+		// Non-fatal: update status even if export fails, but log the error
+		_ = s.UpdateStatus(ctx, sessionID, StatusPendingReview)
+		return "", fmt.Errorf("LS submit succeeded but export failed: %w", err)
+	}
+
+	// Persist the export file path on the session
+	s.db.WithContext(ctx).Model(&Session{}).Where("id = ?", sessionID).Update("export_file_path", exportPath)
+
+	if err := s.UpdateStatus(ctx, sessionID, StatusPendingReview); err != nil {
+		return exportPath, err
+	}
+	return exportPath, nil
 }
 
 func (s *service) UpsertCounter(ctx context.Context, name, mobile string) (*auth.Counter, error) {
@@ -322,16 +390,14 @@ func (s *service) ListCounters(ctx context.Context, sessionID string) ([]auth.Co
 func (s *service) GetCounterSessions(ctx context.Context, counterID string) ([]Session, error) {
 	var sessions []Session
 	err := s.db.WithContext(ctx).
-		Joins("JOIN session_counters ON session_counters.session_id = sessions.id").
-		Where("session_counters.counter_id = ? AND session_counters.active = ? AND sessions.status = ?",
+		Joins("JOIN session_counters ON session_counters.session_id = stock_count_sessions.id").
+		Where("session_counters.counter_id = ? AND session_counters.active = ? AND stock_count_sessions.status = ?",
 			counterID, true, StatusActive).
-		Order("sessions.session_date desc").
+		Order("stock_count_sessions.session_date desc").
 		Find(&sessions).Error
 	return sessions, err
 }
 
-// GetCounterSessionViews returns rich session summaries for the mobile counter app,
-// including store name and bay completion progress.
 func (s *service) GetCounterSessionViews(ctx context.Context, counterID string) ([]CounterSessionView, error) {
 	sessions, err := s.GetCounterSessions(ctx, counterID)
 	if err != nil {
@@ -348,7 +414,6 @@ func (s *service) GetCounterSessionViews(ctx context.Context, counterID string) 
 	return views, nil
 }
 
-// GetCounterSessionView returns a single rich session view for the mobile counter app.
 func (s *service) GetCounterSessionView(ctx context.Context, sessionID, counterID string) (*CounterSessionView, error) {
 	sess, err := s.GetSession(ctx, sessionID)
 	if err != nil {
@@ -357,75 +422,81 @@ func (s *service) GetCounterSessionView(ctx context.Context, sessionID, counterI
 	return s.buildSessionView(ctx, *sess, counterID)
 }
 
-// buildSessionView enriches a Session with store name and bay completion counts.
 func (s *service) buildSessionView(ctx context.Context, sess Session, counterID string) (*CounterSessionView, error) {
-	// Get store name
 	type storeRow struct{ StoreName string }
 	var sr storeRow
 	s.db.WithContext(ctx).Raw("SELECT store_name FROM stores WHERE id = ?", sess.StoreID).Scan(&sr)
 
-	// Count total bays in this store
-	var baysTotal int64
+	var binsTotal int64
 	s.db.WithContext(ctx).Raw(`
 		SELECT COUNT(b.id)
-		FROM bays b
+		FROM bins b
 		JOIN aisles a ON a.id = b.aisle_id
-		JOIN zones z ON z.id = a.zone_id
-		WHERE z.store_id = ? AND b.active = true`, sess.StoreID).Scan(&baysTotal)
+		JOIN areas ar ON ar.id = a.area_id
+		WHERE ar.store_id = ? AND b.active = true`, sess.StoreID).Scan(&binsTotal)
 
-	// Count submitted bays for this session by this counter
-	var baysComplete int64
+	var binsComplete int64
 	s.db.WithContext(ctx).Raw(`
-		SELECT COUNT(DISTINCT bay_id)
+		SELECT COUNT(DISTINCT bin_id)
 		FROM bin_submissions
-		WHERE session_id = ? AND counter_id = ?`, sess.ID, counterID).Scan(&baysComplete)
+		WHERE session_id = ? AND counter_id = ?`, sess.ID, counterID).Scan(&binsComplete)
+
+	var pendingRecount int64
+	s.db.WithContext(ctx).Raw(`
+		SELECT COUNT(DISTINCT vf.item_no)
+		FROM variance_flags vf
+		JOIN session_counters sc ON sc.session_id = vf.session_id AND sc.counter_id = ?
+		WHERE vf.session_id = ? AND vf.status = 'PENDING'
+		AND NOT EXISTS (
+			SELECT 1 FROM count_lines cl
+			WHERE cl.session_id = vf.session_id AND cl.item_no = vf.item_no
+			AND cl.counter_id = ? AND cl.round_no > 0
+		)`, counterID, sess.ID, counterID).Scan(&pendingRecount)
 
 	return &CounterSessionView{
-		ID:           sess.ID,
-		StoreID:      sess.StoreID,
-		StoreName:    sr.StoreName,
-		SessionDate:  sess.SessionDate,
-		Type:         sess.Type,
-		Status:       sess.Status,
-		BaysTotal:    int(baysTotal),
-		BaysComplete: int(baysComplete),
+		ID:             sess.ID,
+		StoreID:        sess.StoreID,
+		StoreName:      sr.StoreName,
+		StockCountDate: sess.StockCountDate,
+		Type:           sess.Type,
+		Status:         sess.Status,
+		BinsTotal:      int(binsTotal),
+		BinsComplete:   int(binsComplete),
+		PendingRecount: int(pendingRecount),
 	}, nil
 }
 
-// GetSessionBays returns all bays for the store associated with a session,
-// tagged with whether this counter has submitted each bay.
-func (s *service) GetSessionBays(ctx context.Context, sessionID, counterID string) ([]BayView, error) {
+func (s *service) GetSessionBins(ctx context.Context, sessionID, counterID string) ([]BinView, error) {
 	sess, err := s.GetSession(ctx, sessionID)
 	if err != nil {
 		return nil, fmt.Errorf("session not found: %w", err)
 	}
 
-	type rawBay struct {
+	type rawBin struct {
 		ID        string
-		ZoneCode  string
-		ZoneName  string
+		AreaCode  string
+		AreaName  string
 		AisleCode string
 		AisleName string
-		BayCode   string
-		BayName   string
+		BinCode   string
+		BinName   string
 		Barcode   string
 	}
-	var rawBays []rawBay
+	var rawBins []rawBin
 	if err := s.db.WithContext(ctx).Raw(`
-		SELECT b.id, z.zone_code, z.zone_name, a.aisle_code, a.aisle_name,
-		       b.bay_code, b.bay_name, b.barcode
-		FROM bays b
+		SELECT b.id, ar.area_code, ar.area_name, a.aisle_code, a.aisle_name,
+		       b.bin_code, b.bin_name, b.barcode
+		FROM bins b
 		JOIN aisles a ON a.id = b.aisle_id
-		JOIN zones z ON z.id = a.zone_id
-		WHERE z.store_id = ? AND b.active = true
-		ORDER BY z.zone_code, a.aisle_code, b.bay_code`, sess.StoreID).Scan(&rawBays).Error; err != nil {
+		JOIN areas ar ON ar.id = a.area_id
+		WHERE ar.store_id = ? AND b.active = true
+		ORDER BY ar.area_code, a.aisle_code, b.bin_code`, sess.StoreID).Scan(&rawBins).Error; err != nil {
 		return nil, err
 	}
 
-	// Collect submitted bay IDs for this session + counter
 	var submittedIDs []string
 	s.db.WithContext(ctx).Raw(`
-		SELECT DISTINCT bay_id FROM bin_submissions
+		SELECT DISTINCT bin_id FROM bin_submissions
 		WHERE session_id = ? AND counter_id = ?`, sessionID, counterID).
 		Scan(&submittedIDs)
 	submittedSet := make(map[string]bool, len(submittedIDs))
@@ -433,16 +504,16 @@ func (s *service) GetSessionBays(ctx context.Context, sessionID, counterID strin
 		submittedSet[id] = true
 	}
 
-	views := make([]BayView, 0, len(rawBays))
-	for _, b := range rawBays {
-		views = append(views, BayView{
+	views := make([]BinView, 0, len(rawBins))
+	for _, b := range rawBins {
+		views = append(views, BinView{
 			ID:        b.ID,
-			ZoneCode:  b.ZoneCode,
-			ZoneName:  b.ZoneName,
+			AreaCode:  b.AreaCode,
+			AreaName:  b.AreaName,
 			AisleCode: b.AisleCode,
 			AisleName: b.AisleName,
-			BayCode:   b.BayCode,
-			BayName:   b.BayName,
+			BinCode:   b.BinCode,
+			BinName:   b.BinName,
 			Barcode:   b.Barcode,
 			Submitted: submittedSet[b.ID],
 		})
@@ -450,8 +521,6 @@ func (s *service) GetSessionBays(ctx context.Context, sessionID, counterID strin
 	return views, nil
 }
 
-// GetSessionItemByBarcode looks up a session item by barcode within a session.
-// Returns the SessionItem populated during theoretical stock pull.
 func (s *service) GetSessionItemByBarcode(ctx context.Context, sessionID, barcode string) (*SessionItem, error) {
 	var item SessionItem
 	err := s.db.WithContext(ctx).

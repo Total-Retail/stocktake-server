@@ -21,8 +21,9 @@ const (
 )
 
 type Claims struct {
-	UserID    string    `json:"user_id"`
-	TokenType TokenType `json:"token_type"`
+	UserID       string    `json:"user_id"`
+	TokenType    TokenType `json:"token_type"`
+	IsSuperAdmin bool      `json:"is_super_admin,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -44,10 +45,12 @@ func NewService(db *gorm.DB, rdb *redis.Client, jwtSecret string, otpExpiryMinut
 	}
 }
 
-func (s *Service) IssueToken(userID string, tokenType TokenType, expiryHours int) (string, error) {
+func (s *Service) IssueToken(userID string, tokenType TokenType, expiryHours int, isSuperAdmin ...bool) (string, error) {
+	super := len(isSuperAdmin) > 0 && isSuperAdmin[0]
 	claims := Claims{
-		UserID:    userID,
-		TokenType: tokenType,
+		UserID:       userID,
+		TokenType:    tokenType,
+		IsSuperAdmin: super,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Duration(expiryHours) * time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),

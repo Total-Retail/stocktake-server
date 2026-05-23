@@ -8,6 +8,7 @@ import (
 	"github.com/totalretail/stocktake/internal/db"
 	"github.com/totalretail/stocktake/internal/server"
 	"github.com/totalretail/stocktake/internal/session"
+	"github.com/totalretail/stocktake/internal/settings"
 	"github.com/totalretail/stocktake/internal/store"
 	"github.com/totalretail/stocktake/internal/variance"
 	"github.com/totalretail/stocktake/internal/auth"
@@ -25,12 +26,17 @@ func main() {
 	// Enable uuid-ossp for gen_random_uuid()
 	database.Exec("CREATE EXTENSION IF NOT EXISTS pgcrypto")
 
-	// AutoMigrate all models
+	// Run idempotent schema renames BEFORE AutoMigrate so GORM sees the new names
+	if err := db.RunSchemaRenames(database); err != nil {
+		log.Fatalf("schema rename migration failed: %v", err)
+	}
+
+	// AutoMigrate all models (additive only — adds new columns, does not drop or rename)
 	if err := database.AutoMigrate(
 		&store.Store{},
-		&store.Zone{},
+		&store.Area{},
 		&store.Aisle{},
-		&store.Bay{},
+		&store.Bin{},
 		&auth.AdminUser{},
 		&auth.Counter{},
 		&session.Session{},
@@ -41,6 +47,7 @@ func main() {
 		&counting.BinSubmission{},
 		&variance.VarianceFlag{},
 		&variance.RecountDecision{},
+		&settings.VarianceSetting{},
 	); err != nil {
 		log.Fatalf("automigrate failed: %v", err)
 	}
@@ -59,8 +66,11 @@ func main() {
 		log.Println("Created default admin user: admin / admin123 — change this password immediately")
 	}
 
+	// Seed default variance settings if none exist
+	settings.SeedDefaultVarianceSettings(database)
+
 	srv := server.New(cfg, database)
-	log.Printf("starting stocktake-api on %s", cfg.ServerAddr)
+	log.Printf("starting stockcount-api on %s", cfg.ServerAddr)
 	if err := srv.Run(); err != nil {
 		log.Fatalf("server error: %v", err)
 	}

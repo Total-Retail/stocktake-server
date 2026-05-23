@@ -23,12 +23,12 @@ type service struct{ db *gorm.DB }
 func NewService(db *gorm.DB) Service { return &service{db: db} }
 
 func (s *service) GetFlags(ctx context.Context, sessionID string) ([]VarianceFlag, error) {
-    var flags []VarianceFlag
-    err := s.db.WithContext(ctx).
-        Where("session_id = ?", sessionID).
-        Order("flagged_at desc").
-        Find(&flags).Error
-    return flags, err
+	var flags []VarianceFlag
+	err := s.db.WithContext(ctx).
+		Where("session_id = ?", sessionID).
+		Order("flagged_at desc").
+		Find(&flags).Error
+	return flags, err
 }
 
 func (s *service) GetConsolidated(ctx context.Context, sessionID string) ([]ConsolidatedLine, error) {
@@ -41,7 +41,8 @@ func (s *service) GetConsolidated(ctx context.Context, sessionID string) ([]Cons
 			COALESCE(ts.theoretical_qty, 0)                                            AS theoretical_qty,
 			COALESCE(SUM(cl.quantity), 0) - COALESCE(ts.theoretical_qty, 0)           AS variance,
 			COALESCE(si.unit_cost, 0)                                                  AS unit_cost,
-			(COALESCE(SUM(cl.quantity), 0) - COALESCE(ts.theoretical_qty, 0)) * COALESCE(si.unit_cost, 0)                                                AS variance_cost,
+			(COALESCE(SUM(cl.quantity), 0) - COALESCE(ts.theoretical_qty, 0))
+				* COALESCE(si.unit_cost, 0)                                            AS variance_cost,
 			CASE WHEN COALESCE(ts.theoretical_qty,0) = 0 THEN 0
 			     ELSE ROUND(((COALESCE(SUM(cl.quantity),0) - COALESCE(ts.theoretical_qty,0))
 			          / ts.theoretical_qty * 100)::numeric, 2)
@@ -68,11 +69,11 @@ func (s *service) GetConsolidated(ctx context.Context, sessionID string) ([]Cons
 func (s *service) GetAudit(ctx context.Context, sessionID string) ([]AuditLine, error) {
 	var lines []AuditLine
 	err := s.db.WithContext(ctx).Raw(`
-		SELECT si.item_no, si.description, b.bay_code, c.name AS counter_name,
+		SELECT si.item_no, si.description, b.bin_code, c.name AS counter_name,
 		       cl.quantity, cl.round_no, cl.counted_at
 		FROM count_lines cl
 		JOIN session_items si ON si.session_id = cl.session_id AND si.item_no = cl.item_no
-		JOIN bays b ON b.id = cl.bay_id
+		JOIN bins b ON b.id = cl.bin_id
 		JOIN counters c ON c.id = cl.counter_id
 		WHERE cl.session_id = ?
 		ORDER BY si.item_no, cl.round_no, cl.counted_at`, sessionID).Scan(&lines).Error
@@ -141,12 +142,12 @@ func (h *Handler) RegisterRoutes(rg *gin.RouterGroup) {
 }
 
 func (h *Handler) GetFlags(c *gin.Context) {
-    flags, err := h.svc.GetFlags(c.Request.Context(), c.Param("id"))
-    if err != nil {
-        c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-        return
-    }
-    c.JSON(http.StatusOK, flags)
+	flags, err := h.svc.GetFlags(c.Request.Context(), c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, flags)
 }
 
 func (h *Handler) GetConsolidated(c *gin.Context) {

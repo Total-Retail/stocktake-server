@@ -34,7 +34,7 @@ export default function MonitorPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-semibold text-gray-900">Live Monitor</h1>
-          <p className="text-sm text-gray-500 mt-0.5">{session.session_date} — <StatusBadge status={session.status} /></p>
+          <p className="text-sm text-gray-500 mt-0.5">{session.stock_count_date} — <StatusBadge status={session.status} /></p>
         </div>
         <Badge color={connected ? 'green' : 'red'}>{connected ? '● Live' : '○ Disconnected'}</Badge>
       </div>

@@ -28,6 +28,7 @@ type Config struct {
 	CounterTokenHours    int
 	AdminTokenHours      int
 	VarianceTolerancePct float64
+	ExportDir            string
 }
 
 func Load() *Config {
@@ -54,6 +55,7 @@ func Load() *Config {
 		CounterTokenHours:    getEnvInt("COUNTER_TOKEN_HOURS", 12),
 		AdminTokenHours:      getEnvInt("ADMIN_TOKEN_HOURS", 8),
 		VarianceTolerancePct: getEnvFloat("VARIANCE_TOLERANCE_PCT", 2.0),
+		ExportDir:            getEnv("EXPORT_DIR", "./exports"),
 	}
 }
 

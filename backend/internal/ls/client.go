@@ -382,6 +382,42 @@ func (c *Client) PostFinalCounts(ctx context.Context, worksheetSeqNo int, lines 
 	return nil
 }
 
+// ClearWorksheetLines deletes all physical inventory journal lines for the given worksheetSeqNo.
+// Called when a session is reopened to reset the LS worksheet for a fresh count.
+func (c *Client) ClearWorksheetLines(ctx context.Context, worksheetSeqNo int) error {
+	lines, err := c.GetWorksheetLines(ctx, worksheetSeqNo)
+	if err != nil {
+		return fmt.Errorf("fetch lines for clear: %w", err)
+	}
+	for _, line := range lines {
+		deleteURL := fmt.Sprintf(
+			"%s(WorksheetSeqNo=%d,Line_No=%d)",
+			c.oDataURL("StoreInvJournal"),
+			worksheetSeqNo,
+			line.LineNo,
+		)
+		req, err := http.NewRequestWithContext(ctx, http.MethodDelete, deleteURL, nil)
+		if err != nil {
+			return fmt.Errorf("build delete request for line %d: %w", line.LineNo, err)
+		}
+		req.SetBasicAuth(c.username, c.password)
+		if line.ETag != "" {
+			req.Header.Set("If-Match", line.ETag)
+		} else {
+			req.Header.Set("If-Match", "*")
+		}
+		resp, err := c.http.Do(req)
+		if err != nil {
+			return fmt.Errorf("delete line %d: %w", line.LineNo, err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK {
+			return fmt.Errorf("delete line %d: LS returned %d", line.LineNo, resp.StatusCode)
+		}
+	}
+	return nil
+}
+
 // GetItems fetches the item master from LS
 func (c *Client) GetItems(ctx context.Context) ([]ItemLine, error) {
 	endpoint := fmt.Sprintf("%s?$format=json&$select=No,Description,Barcode,BaseUnitOfMeasure,Unit_Cost",

@@ -3,14 +3,15 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { clsx } from 'clsx'
-import { LayoutDashboard, Store, ClipboardList, Users, LogOut } from 'lucide-react'
+import { LayoutDashboard, Store, ClipboardList, Users, Settings, LogOut } from 'lucide-react'
 import { useAuth } from '@/lib/auth'
 
 const NAV = [
   { href: '/dashboard',    label: 'Dashboard',    icon: LayoutDashboard },
   { href: '/stores',       label: 'Stores',       icon: Store },
-  { href: '/sessions',     label: 'Stock Takes',  icon: ClipboardList },
+  { href: '/sessions',     label: 'Stock Counts', icon: ClipboardList },
   { href: '/admin/users',  label: 'Admin users',  icon: Users },
+  { href: '/settings',     label: 'Settings',     icon: Settings },
 ]
 
 export function Sidebar() {
@@ -21,7 +22,7 @@ export function Sidebar() {
     <aside className="w-56 min-h-screen bg-gray-900 flex flex-col">
       <div className="px-5 py-6 border-b border-gray-800">
         <span className="text-teal-400 font-bold text-sm tracking-wide uppercase">Total Retail</span>
-        <p className="text-white font-semibold text-lg leading-tight mt-0.5">StockTake</p>
+        <p className="text-white font-semibold text-lg leading-tight mt-0.5">StockCount</p>
       </div>
 
       <nav className="flex-1 px-3 py-4 space-y-0.5">

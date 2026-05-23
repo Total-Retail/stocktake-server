@@ -3,40 +3,54 @@ export interface Store {
   store_code: string
   store_name: string
   ls_store_code: string
+  location_code: string | null
   active: boolean
 }
 
-export interface Zone {
+export interface Area {
   id: string
   store_id: string
-  zone_code: string
-  zone_name: string
+  area_code: string
+  area_name: string
 }
 
 export interface Aisle {
   id: string
-  zone_id: string
+  area_id: string
   aisle_code: string
   aisle_name: string
 }
 
-export interface Bay {
+export interface Bin {
   id: string
   aisle_id: string
-  bay_code: string
-  bay_name: string
+  bin_code: string
+  bin_name: string
   barcode: string
   active: boolean
 }
 
+export type SessionStatus =
+  | 'DRAFT'
+  | 'ACTIVE'
+  | 'PENDING_REVIEW'
+  | 'POSTED'
+  | 'REOPENED'
+  | 'ABORTED'
+
 export interface Session {
   id: string
   store_id: string
-  session_date: string
+  stock_count_date: string
   type: string
-  status: string
-  variance_tolerance_pct: number
+  status: SessionStatus
   worksheet_no: string | null
+  document_number: string | null
+  document_checked_at: string | null
+  export_file_path: string | null
+  abort_reason: string | null
+  aborted_at: string | null
+  aborted_by: string | null
   created_by: string
   created_at: string
 }
@@ -53,14 +67,13 @@ export interface TheoreticalStock {
   item_no: string
   theoretical_qty: number
   unit_cost: number
-  pulled_at: string
 }
 
 // Counting
 export interface CountLine {
   id: string
   session_id: string
-  bay_id: string
+  bin_id: string
   item_no: string
   counter_id: string
   quantity: number
@@ -73,7 +86,7 @@ export interface CountLine {
 export interface BinSubmission {
   id: string
   session_id: string
-  bay_id: string
+  bin_id: string
   counter_id: string
   submitted_at: string
 }
@@ -96,7 +109,7 @@ export interface ConsolidatedLine {
 export interface AuditLine {
   item_no: string
   description: string
-  bay_code: string
+  bin_code: string
   counter_name: string
   quantity: number
   round_no: number
@@ -112,13 +125,22 @@ export interface VarianceFlag {
   status: FlagStatus
 }
 
+// Settings
+export interface VarianceSetting {
+  id: string
+  stock_count_type: string
+  tolerance_pct: number
+  updated_by: string | null
+  updated_at: string
+}
+
 // Reporting
 export interface CounterPerformance {
   counter_id: string
   counter_name: string
   mobile: string
   items_counted: number
-  bays_completed: number
+  bins_completed: number
   recount_rate_pct: number
   recount_accepted: number
   recount_rejected: number
@@ -134,8 +156,8 @@ export interface HourlyActivity {
 export interface SessionSummary {
   session_id: string
   total_items: number
-  total_bays: number
-  bays_completed: number
+  total_bins: number
+  bins_completed: number
   total_counts: number
   counters: CounterPerformance[]
   hourly_activity: HourlyActivity[]
@@ -147,6 +169,7 @@ export interface AdminUser {
   username: string
   full_name: string
   active: boolean
+  is_super_admin: boolean
   created_at: string
 }
 
@@ -165,7 +188,39 @@ export interface WSEvent {
 }
 
 export interface StoreLayout {
-  zones: Zone[]
+  areas: Area[]
   aisles: Aisle[]
-  bays: Bay[]
+  bins: Bin[]
+}
+
+// ── Helper maps ────────────────────────────────────────────────────────────────
+
+export const SESSION_TYPE_LABELS: Record<string, string> = {
+  FLOOR:      'Floor',
+  BAKERY:     'Bakery',
+  BUTCHERY:   'Butchery',
+  FRUIT_VEG:  'Fruit & Veg',
+  DELI_COLD:  'Deli Cold',
+  DELI_HOT:   'Deli Hot',
+  QSR:        'QSR',
+  RESTAURANT: 'Restaurant',
+  PARTIAL:    'Partial',
+}
+
+export const SESSION_STATUS_LABELS: Record<SessionStatus, string> = {
+  DRAFT:          'Draft',
+  ACTIVE:         'Active',
+  PENDING_REVIEW: 'Pending Review',
+  POSTED:         'Posted',
+  REOPENED:       'Reopened',
+  ABORTED:        'Aborted',
+}
+
+export const SESSION_STATUS_COLOURS: Record<SessionStatus, string> = {
+  DRAFT:          'bg-gray-100 text-gray-700',
+  ACTIVE:         'bg-blue-100 text-blue-700',
+  PENDING_REVIEW: 'bg-yellow-100 text-yellow-800',
+  POSTED:         'bg-green-100 text-green-700',
+  REOPENED:       'bg-orange-100 text-orange-700',
+  ABORTED:        'bg-red-100 text-red-700',
 }

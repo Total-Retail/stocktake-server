@@ -20,7 +20,7 @@ export default function PerformancePage() {
   if (loading) return <div className="flex justify-center items-center h-64"><Spinner size="lg" /></div>
 
   const totalItems = counters.reduce((s, c) => s + c.items_counted, 0)
-  const totalBays  = counters.reduce((s, c) => s + c.bays_completed, 0)
+  const totalBays  = counters.reduce((s, c) => s + c.bins_completed, 0)
   const avgRecount = counters.length
     ? (counters.reduce((s, c) => s + c.recount_rate_pct, 0) / counters.length).toFixed(1)
     : '0'
@@ -28,7 +28,7 @@ export default function PerformancePage() {
   const chartData = (counters ?? []).map(c => ({
     name: c.counter_name,
     items: c.items_counted,
-    bays: c.bays_completed,
+    bays: c.bins_completed,
   }))
   const COLORS = ['#1D9E75', '#0F6E56', '#9FE1CB', '#5DCAA5', '#34C08B', '#2BA876']
 
@@ -37,7 +37,7 @@ export default function PerformancePage() {
       'Counter': c.counter_name,
       'Mobile': c.mobile,
       'Items Counted': c.items_counted,
-      'Bays Completed': c.bays_completed,
+      'Bins Completed': c.bins_completed,
       'Recount Rate %': c.recount_rate_pct,
       'Recounts Accepted': c.recount_accepted,
       'Recounts Rejected': c.recount_rejected,
@@ -60,7 +60,7 @@ export default function PerformancePage() {
 
       <div className="grid grid-cols-3 gap-4">
         <StatCard label="Total items counted" value={totalItems} />
-        <StatCard label="Total bays completed" value={totalBays} />
+        <StatCard label="Total bins completed" value={totalBays} />
         <StatCard label="Avg recount rate" value={`${avgRecount}%`} />
       </div>
 
@@ -90,7 +90,7 @@ export default function PerformancePage() {
             <table className="w-full text-sm">
               <thead className="bg-gray-50 border-b border-gray-100">
                 <tr>
-                  {['Counter', 'Mobile', 'Items', 'Bays', 'Recount rate', 'Accepted', 'Rejected', 'Last active'].map(h => (
+                  {['Counter', 'Mobile', 'Items', 'Bins', 'Recount rate', 'Accepted', 'Rejected', 'Last active'].map(h => (
                     <th key={h} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">{h}</th>
                   ))}
                 </tr>
@@ -101,7 +101,7 @@ export default function PerformancePage() {
                     <td className="px-4 py-3 font-medium text-gray-900">{c.counter_name}</td>
                     <td className="px-4 py-3 text-gray-500 text-xs">{c.mobile}</td>
                     <td className="px-4 py-3 font-semibold text-teal-600">{c.items_counted}</td>
-                    <td className="px-4 py-3 text-gray-700">{c.bays_completed}</td>
+                    <td className="px-4 py-3 text-gray-700">{c.bins_completed}</td>
                     <td className="px-4 py-3 text-gray-700">{c.recount_rate_pct}%</td>
                     <td className="px-4 py-3 text-green-600 font-medium">{c.recount_accepted}</td>
                     <td className="px-4 py-3 text-red-500 font-medium">{c.recount_rejected}</td>

@@ -14,12 +14,12 @@ type Service interface {
 	GetStore(ctx context.Context, id string) (*Store, error)
 	CreateStore(ctx context.Context, s Store) (*Store, error)
 	UpdateStore(ctx context.Context, s Store) (*Store, error)
-	GetLayout(ctx context.Context, storeID string) ([]Zone, []Aisle, []Bay, error)
-	CreateZone(ctx context.Context, z Zone) (*Zone, error)
+	GetLayout(ctx context.Context, storeID string) ([]Area, []Aisle, []Bin, error)
+	CreateArea(ctx context.Context, a Area) (*Area, error)
 	CreateAisle(ctx context.Context, a Aisle) (*Aisle, error)
-	CreateBay(ctx context.Context, b Bay) (*Bay, error)
+	CreateBin(ctx context.Context, b Bin) (*Bin, error)
 	BulkImportLayout(ctx context.Context, storeID string, rows []LayoutImportRow) error
-	GetBayByBarcode(ctx context.Context, barcode string) (*Bay, error)
+	GetBinByBarcode(ctx context.Context, barcode string) (*Bin, error)
 }
 
 type service struct{ db *gorm.DB }
@@ -48,37 +48,37 @@ func (s *service) UpdateStore(ctx context.Context, st Store) (*Store, error) {
 	return &st, err
 }
 
-func (s *service) GetLayout(ctx context.Context, storeID string) ([]Zone, []Aisle, []Bay, error) {
-	var zones []Zone
-	if err := s.db.WithContext(ctx).Where("store_id = ?", storeID).Order("zone_code").Find(&zones).Error; err != nil {
+func (s *service) GetLayout(ctx context.Context, storeID string) ([]Area, []Aisle, []Bin, error) {
+	var areas []Area
+	if err := s.db.WithContext(ctx).Where("store_id = ?", storeID).Order("area_code").Find(&areas).Error; err != nil {
 		return nil, nil, nil, err
 	}
 
 	var aisles []Aisle
 	if err := s.db.WithContext(ctx).
-		Joins("JOIN zones ON zones.id = aisles.zone_id").
-		Where("zones.store_id = ?", storeID).
+		Joins("JOIN areas ON areas.id = aisles.area_id").
+		Where("areas.store_id = ?", storeID).
 		Order("aisles.aisle_code").
 		Find(&aisles).Error; err != nil {
 		return nil, nil, nil, err
 	}
 
-	var bays []Bay
+	var bins []Bin
 	if err := s.db.WithContext(ctx).
-		Joins("JOIN aisles ON aisles.id = bays.aisle_id").
-		Joins("JOIN zones ON zones.id = aisles.zone_id").
-		Where("zones.store_id = ? AND bays.active = ?", storeID, true).
-		Order("bays.bay_code").
-		Find(&bays).Error; err != nil {
+		Joins("JOIN aisles ON aisles.id = bins.aisle_id").
+		Joins("JOIN areas ON areas.id = aisles.area_id").
+		Where("areas.store_id = ? AND bins.active = ?", storeID, true).
+		Order("bins.bin_code").
+		Find(&bins).Error; err != nil {
 		return nil, nil, nil, err
 	}
 
-	return zones, aisles, bays, nil
+	return areas, aisles, bins, nil
 }
 
-func (s *service) CreateZone(ctx context.Context, z Zone) (*Zone, error) {
-	err := s.db.WithContext(ctx).Create(&z).Error
-	return &z, err
+func (s *service) CreateArea(ctx context.Context, a Area) (*Area, error) {
+	err := s.db.WithContext(ctx).Create(&a).Error
+	return &a, err
 }
 
 func (s *service) CreateAisle(ctx context.Context, a Aisle) (*Aisle, error) {
@@ -86,9 +86,9 @@ func (s *service) CreateAisle(ctx context.Context, a Aisle) (*Aisle, error) {
 	return &a, err
 }
 
-func (s *service) CreateBay(ctx context.Context, b Bay) (*Bay, error) {
+func (s *service) CreateBin(ctx context.Context, b Bin) (*Bin, error) {
 	if b.Barcode == "" {
-		b.Barcode = fmt.Sprintf("BAY-%s", uuid.New().String()[:8])
+		b.Barcode = fmt.Sprintf("BIN-%s", uuid.New().String()[:8])
 	}
 	err := s.db.WithContext(ctx).Create(&b).Error
 	return &b, err
@@ -96,26 +96,26 @@ func (s *service) CreateBay(ctx context.Context, b Bay) (*Bay, error) {
 
 func (s *service) BulkImportLayout(ctx context.Context, storeID string, importRows []LayoutImportRow) error {
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		zoneMap := map[string]string{}
+		areaMap := map[string]string{}
 		aisleMap := map[string]string{}
 
 		for _, row := range importRows {
-			if _, ok := zoneMap[row.ZoneCode]; !ok {
-				z := Zone{StoreID: storeID, ZoneCode: row.ZoneCode, ZoneName: row.ZoneName}
+			if _, ok := areaMap[row.AreaCode]; !ok {
+				a := Area{StoreID: storeID, AreaCode: row.AreaCode, AreaName: row.AreaName}
 				if err := tx.Clauses(clause.OnConflict{
-					Columns:   []clause.Column{{Name: "store_id"}, {Name: "zone_code"}},
-					DoUpdates: clause.AssignmentColumns([]string{"zone_name"}),
-				}).Create(&z).Error; err != nil {
-					return fmt.Errorf("upsert zone %s: %w", row.ZoneCode, err)
+					Columns:   []clause.Column{{Name: "store_id"}, {Name: "area_code"}},
+					DoUpdates: clause.AssignmentColumns([]string{"area_name"}),
+				}).Create(&a).Error; err != nil {
+					return fmt.Errorf("upsert area %s: %w", row.AreaCode, err)
 				}
-				zoneMap[row.ZoneCode] = z.ID
+				areaMap[row.AreaCode] = a.ID
 			}
 
-			aisleKey := row.ZoneCode + "|" + row.AisleCode
+			aisleKey := row.AreaCode + "|" + row.AisleCode
 			if _, ok := aisleMap[aisleKey]; !ok {
-				a := Aisle{ZoneID: zoneMap[row.ZoneCode], AisleCode: row.AisleCode, AisleName: row.AisleName}
+				a := Aisle{AreaID: areaMap[row.AreaCode], AisleCode: row.AisleCode, AisleName: row.AisleName}
 				if err := tx.Clauses(clause.OnConflict{
-					Columns:   []clause.Column{{Name: "zone_id"}, {Name: "aisle_code"}},
+					Columns:   []clause.Column{{Name: "area_id"}, {Name: "aisle_code"}},
 					DoUpdates: clause.AssignmentColumns([]string{"aisle_name"}),
 				}).Create(&a).Error; err != nil {
 					return fmt.Errorf("upsert aisle %s: %w", row.AisleCode, err)
@@ -123,21 +123,21 @@ func (s *service) BulkImportLayout(ctx context.Context, storeID string, importRo
 				aisleMap[aisleKey] = a.ID
 			}
 
-			barcode := fmt.Sprintf("BAY-%s-%s", row.AisleCode, row.BayCode)
-			b := Bay{AisleID: aisleMap[aisleKey], BayCode: row.BayCode, BayName: row.BayName, Barcode: barcode}
+			barcode := fmt.Sprintf("BIN-%s-%s", row.AisleCode, row.BinCode)
+			b := Bin{AisleID: aisleMap[aisleKey], BinCode: row.BinCode, BinName: row.BinName, Barcode: barcode}
 			if err := tx.Clauses(clause.OnConflict{
-				Columns:   []clause.Column{{Name: "aisle_id"}, {Name: "bay_code"}},
-				DoUpdates: clause.AssignmentColumns([]string{"bay_name"}),
+				Columns:   []clause.Column{{Name: "aisle_id"}, {Name: "bin_code"}},
+				DoUpdates: clause.AssignmentColumns([]string{"bin_name"}),
 			}).Create(&b).Error; err != nil {
-				return fmt.Errorf("upsert bay %s: %w", row.BayCode, err)
+				return fmt.Errorf("upsert bin %s: %w", row.BinCode, err)
 			}
 		}
 		return nil
 	})
 }
 
-func (s *service) GetBayByBarcode(ctx context.Context, barcode string) (*Bay, error) {
-	var b Bay
+func (s *service) GetBinByBarcode(ctx context.Context, barcode string) (*Bin, error) {
+	var b Bin
 	err := s.db.WithContext(ctx).First(&b, "barcode = ?", barcode).Error
 	return &b, err
 }

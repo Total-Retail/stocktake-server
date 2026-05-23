@@ -3,8 +3,8 @@ import './globals.css'
 import { AuthProvider } from '@/lib/auth'
 
 export const metadata: Metadata = {
-  title: 'StockTake | Total Retail',
-  description: 'Stock counting management system',
+  title: 'StockCount | Total Retail',
+  description: 'Stock count management system',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

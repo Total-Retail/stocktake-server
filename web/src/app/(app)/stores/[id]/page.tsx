@@ -4,18 +4,18 @@ import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { stores } from '@/lib/api'
-import type { Store, StoreLayout, Zone, Aisle, Bay } from '@/types'
+import type { Store, StoreLayout, Area, Aisle, Bin } from '@/types'
 import { Button, Card, CardBody, CardHeader, Spinner, Empty } from '@/components/ui'
 
 export default function StoreLayoutPage() {
   const { id } = useParams<{ id: string }>()
   const [store, setStore] = useState<Store | null>(null)
-  const [layout, setLayout] = useState<StoreLayout>({ zones: [], aisles: [], bays: [] })
+  const [layout, setLayout] = useState<StoreLayout>({ areas: [], aisles: [], bins: [] })
   const [loading, setLoading] = useState(true)
-  const [newZone, setNewZone] = useState({ zone_code: '', zone_name: '' })
-  const [newAisle, setNewAisle] = useState({ zone_id: '', aisle_code: '', aisle_name: '' })
-  const [newBin, setNewBin] = useState({ aisle_id: '', bay_code: '', bay_name: '' })
-  const [saving, setSaving] = useState<'zone' | 'aisle' | 'bin' | null>(null)
+  const [newArea, setNewArea] = useState({ area_code: '', area_name: '' })
+  const [newAisle, setNewAisle] = useState({ area_id: '', aisle_code: '', aisle_name: '' })
+  const [newBin, setNewBin] = useState({ aisle_id: '', bin_code: '', bin_name: '' })
+  const [saving, setSaving] = useState<'area' | 'aisle' | 'bin' | null>(null)
   const [error, setError] = useState('')
 
   useEffect(() => {
@@ -24,16 +24,16 @@ export default function StoreLayoutPage() {
       .finally(() => setLoading(false))
   }, [id])
 
-  async function addZone(e: React.FormEvent) {
+  async function addArea(e: React.FormEvent) {
     e.preventDefault()
-    setSaving('zone')
+    setSaving('area')
     setError('')
     try {
-      const zone = await stores.createZone(id, newZone)
-      setLayout(l => ({ ...l, zones: [...(l.zones ?? []), zone] }))
-      setNewZone({ zone_code: '', zone_name: '' })
+      const area = await stores.createArea(id, newArea)
+      setLayout(l => ({ ...l, areas: [...(l.areas ?? []), area] }))
+      setNewArea({ area_code: '', area_name: '' })
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to add zone')
+      setError(err instanceof Error ? err.message : 'Failed to add area')
     } finally { setSaving(null) }
   }
 
@@ -44,7 +44,7 @@ export default function StoreLayoutPage() {
     try {
       const aisle = await stores.createAisle(id, newAisle)
       setLayout(l => ({ ...l, aisles: [...(l.aisles ?? []), aisle] }))
-      setNewAisle({ zone_id: '', aisle_code: '', aisle_name: '' })
+      setNewAisle({ area_id: '', aisle_code: '', aisle_name: '' })
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to add aisle')
     } finally { setSaving(null) }
@@ -55,9 +55,9 @@ export default function StoreLayoutPage() {
     setSaving('bin')
     setError('')
     try {
-      const bin = await stores.createBay(id, newBin)
-      setLayout(l => ({ ...l, bays: [...(l.bays ?? []), bin] }))
-      setNewBin({ aisle_id: '', bay_code: '', bay_name: '' })
+      const bin = await stores.createBin(id, newBin)
+      setLayout(l => ({ ...l, bins: [...(l.bins ?? []), bin] }))
+      setNewBin({ aisle_id: '', bin_code: '', bin_name: '' })
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to add bin')
     } finally { setSaving(null) }
@@ -78,6 +78,7 @@ export default function StoreLayoutPage() {
           <p className="text-sm text-gray-500 mt-0.5">
             {store?.store_code}
             {store?.ls_store_code && <span className="ml-2 text-gray-400">· LS: {store.ls_store_code}</span>}
+            {store?.location_code && <span className="ml-2 text-gray-400">· Location: {store.location_code}</span>}
             {store && !store.active && <span className="ml-2 text-red-500 font-medium">· Inactive</span>}
           </p>
         </div>
@@ -94,31 +95,31 @@ export default function StoreLayoutPage() {
       {error && <p className="text-sm text-red-600 bg-red-50 px-4 py-2 rounded-lg">{error}</p>}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Zones */}
+        {/* Areas */}
         <Card>
           <CardHeader>
-            <h2 className="text-sm font-semibold text-gray-700">Zones ({layout.zones?.length ?? 0})</h2>
+            <h2 className="text-sm font-semibold text-gray-700">Areas ({layout.areas?.length ?? 0})</h2>
           </CardHeader>
           <CardBody className="space-y-4">
-            {layout.zones?.length === 0
-              ? <Empty message="No zones yet." />
+            {layout.areas?.length === 0
+              ? <Empty message="No areas yet." />
               : (
                 <ul className="divide-y divide-gray-100">
-                  {layout.zones.map((z: Zone) => (
-                    <li key={z.id} className="py-2 flex justify-between text-sm">
-                      <span className="font-medium text-gray-900">{z.zone_name}</span>
-                      <span className="text-gray-400 font-mono text-xs">{z.zone_code}</span>
+                  {layout.areas.map((a: Area) => (
+                    <li key={a.id} className="py-2 flex justify-between text-sm">
+                      <span className="font-medium text-gray-900">{a.area_name}</span>
+                      <span className="text-gray-400 font-mono text-xs">{a.area_code}</span>
                     </li>
                   ))}
                 </ul>
               )
             }
-            <form onSubmit={addZone} className="flex gap-2 pt-2 border-t border-gray-100">
-              <input value={newZone.zone_code} onChange={e => setNewZone(z => ({ ...z, zone_code: e.target.value }))}
+            <form onSubmit={addArea} className="flex gap-2 pt-2 border-t border-gray-100">
+              <input value={newArea.area_code} onChange={e => setNewArea(a => ({ ...a, area_code: e.target.value }))}
                 placeholder="Code" className="w-24 px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" required />
-              <input value={newZone.zone_name} onChange={e => setNewZone(z => ({ ...z, zone_name: e.target.value }))}
+              <input value={newArea.area_name} onChange={e => setNewArea(a => ({ ...a, area_name: e.target.value }))}
                 placeholder="Name" className="flex-1 px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" required />
-              <Button type="submit" size="sm" loading={saving === 'zone'}>Add</Button>
+              <Button type="submit" size="sm" loading={saving === 'area'}>Add</Button>
             </form>
           </CardBody>
         </Card>
@@ -143,10 +144,10 @@ export default function StoreLayoutPage() {
               )
             }
             <form onSubmit={addAisle} className="flex gap-2 pt-2 border-t border-gray-100">
-              <select value={newAisle.zone_id} onChange={e => setNewAisle(a => ({ ...a, zone_id: e.target.value }))}
+              <select value={newAisle.area_id} onChange={e => setNewAisle(a => ({ ...a, area_id: e.target.value }))}
                 className="w-28 px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" required>
-                <option value="">Zone…</option>
-                {layout.zones.map((z: Zone) => <option key={z.id} value={z.id}>{z.zone_name}</option>)}
+                <option value="">Area…</option>
+                {layout.areas.map((a: Area) => <option key={a.id} value={a.id}>{a.area_name}</option>)}
               </select>
               <input value={newAisle.aisle_code} onChange={e => setNewAisle(a => ({ ...a, aisle_code: e.target.value }))}
                 placeholder="Code" className="w-20 px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" required />
@@ -162,7 +163,7 @@ export default function StoreLayoutPage() {
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-gray-700">Bins ({layout.bays?.length ?? 0})</h2>
+            <h2 className="text-sm font-semibold text-gray-700">Bins ({layout.bins?.length ?? 0})</h2>
             <a
               href={`/api/v1/stores/${id}/layout/import`}
               className="text-xs text-teal-600 hover:text-teal-700 font-medium"
@@ -201,14 +202,14 @@ export default function StoreLayoutPage() {
               <option value="">Aisle…</option>
               {layout.aisles.map((a: Aisle) => <option key={a.id} value={a.id}>{a.aisle_name}</option>)}
             </select>
-            <input value={newBin.bay_code} onChange={e => setNewBin(b => ({ ...b, bay_code: e.target.value }))}
+            <input value={newBin.bin_code} onChange={e => setNewBin(b => ({ ...b, bin_code: e.target.value }))}
               placeholder="Bin code" className="w-28 px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" required />
-            <input value={newBin.bay_name} onChange={e => setNewBin(b => ({ ...b, bay_name: e.target.value }))}
+            <input value={newBin.bin_name} onChange={e => setNewBin(b => ({ ...b, bin_name: e.target.value }))}
               placeholder="Bin name" className="flex-1 px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" required />
             <Button type="submit" size="sm" loading={saving === 'bin'}>Add bin</Button>
           </form>
 
-          {layout.bays?.length === 0 ? (
+          {layout.bins?.length === 0 ? (
             <Empty message="No bins yet. Add aisles first, then add bins or bulk import from CSV." />
           ) : (
             <table className="w-full text-sm">
@@ -220,13 +221,13 @@ export default function StoreLayoutPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
-                {layout.bays.map((bin: Bay) => (
+                {layout.bins.map((bin: Bin) => (
                   <tr key={bin.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-2.5 font-mono text-xs text-gray-600">{bin.bay_code}</td>
-                    <td className="px-4 py-2.5 text-gray-900">{bin.bay_name}</td>
+                    <td className="px-4 py-2.5 font-mono text-xs text-gray-600">{bin.bin_code}</td>
+                    <td className="px-4 py-2.5 text-gray-900">{bin.bin_name}</td>
                     <td className="px-4 py-2.5 font-mono text-xs text-gray-400">{bin.barcode}</td>
                     <td className="px-4 py-2.5">
-                      <a href={stores.bayLabelUrl(id, bin.id)} target="_blank" rel="noreferrer"
+                      <a href={stores.binLabelUrl(id, bin.id)} target="_blank" rel="noreferrer"
                         className="text-teal-600 hover:text-teal-700 text-xs font-medium">Label</a>
                     </td>
                   </tr>

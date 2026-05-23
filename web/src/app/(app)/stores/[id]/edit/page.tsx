@@ -17,6 +17,7 @@ export default function StoreEditPage() {
     store_name:    '',
     store_code:    '',
     ls_store_code: '',
+    location_code: '',
   })
   const [loading, setLoading] = useState(false)
   const [error, setError]     = useState('')
@@ -28,6 +29,7 @@ export default function StoreEditPage() {
         store_name:    s.store_name,
         store_code:    s.store_code,
         ls_store_code: s.ls_store_code ?? '',
+        location_code: s.location_code ?? '',
       }))
       .finally(() => setPageLoading(false))
 
@@ -44,11 +46,12 @@ export default function StoreEditPage() {
       setForm(f => ({ ...f, ls_store_code: code }))
       return
     }
-    setForm({
+    setForm(f => ({
+      ...f,
       ls_store_code: picked.code,
       store_name:    picked.name,
       store_code:    picked.code.replace(/\s+/g, '').toUpperCase(),
-    })
+    }))
   }
 
   function set(field: string, value: string) {
@@ -148,6 +151,22 @@ export default function StoreEditPage() {
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
               />
               <p className="text-xs text-gray-400 mt-1">Must match the store code in LS Commerce Service</p>
+            </div>
+
+            {/* Location code */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Location code
+                <span className="ml-1 font-normal text-gray-400">(optional)</span>
+              </label>
+              <input
+                type="text"
+                value={form.location_code}
+                onChange={e => set('location_code', e.target.value)}
+                placeholder="e.g. HQ-001"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+              />
+              <p className="text-xs text-gray-400 mt-1">LS location code if applicable</p>
             </div>
 
             {error && <p className="text-sm text-red-600">{error}</p>}

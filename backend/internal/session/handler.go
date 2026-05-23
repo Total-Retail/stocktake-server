@@ -1,7 +1,10 @@
 package session
 
 import (
+	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 
 	"github.com/gin-gonic/gin"
 	"github.com/totalretail/stocktake/internal/auth"
@@ -13,10 +16,11 @@ type Handler struct {
 	authSvc           *auth.Service
 	smsSvc            sms.Service
 	counterTokenHours int
+	exportDir         string
 }
 
-func NewHandler(svc Service, authSvc *auth.Service, smsSvc sms.Service, counterHours int) *Handler {
-	return &Handler{svc: svc, authSvc: authSvc, smsSvc: smsSvc, counterTokenHours: counterHours}
+func NewHandler(svc Service, authSvc *auth.Service, smsSvc sms.Service, counterHours int, exportDir string) *Handler {
+	return &Handler{svc: svc, authSvc: authSvc, smsSvc: smsSvc, counterTokenHours: counterHours, exportDir: exportDir}
 }
 
 // RegisterRoutes registers admin-only session routes.
@@ -25,6 +29,8 @@ func (h *Handler) RegisterRoutes(rg *gin.RouterGroup) {
 	rg.POST("/sessions", h.CreateSession)
 	rg.GET("/sessions/:id", h.GetSession)
 	rg.PUT("/sessions/:id/status", h.UpdateStatus)
+	rg.POST("/sessions/:id/abort", h.AbortSession)
+	rg.POST("/sessions/:id/reopen", h.ReopenSession)
 
 	rg.GET("/sessions/:id/counters", h.ListCounters)
 	rg.POST("/sessions/:id/counters", h.AddCounter)
@@ -33,6 +39,7 @@ func (h *Handler) RegisterRoutes(rg *gin.RouterGroup) {
 
 	rg.POST("/sessions/:id/pull-theoretical", h.PullTheoretical)
 	rg.POST("/sessions/:id/submit", h.SubmitToLS)
+	rg.GET("/sessions/:id/export", h.DownloadExport)
 
 	rg.GET("/ls/worksheets", h.GetAvailableWorksheets)
 	rg.GET("/ls/stores", h.GetLSStores)
@@ -43,10 +50,9 @@ func (h *Handler) RegisterRoutes(rg *gin.RouterGroup) {
 func (h *Handler) RegisterCounterRoutes(rg *gin.RouterGroup) {
 	rg.GET("/counter/sessions", h.GetCounterSessionViews)
 	rg.GET("/counter/sessions/:id", h.GetCounterSessionView)
-	rg.GET("/counter/sessions/:id/bays", h.GetSessionBays)
+	rg.GET("/counter/sessions/:id/bins", h.GetSessionBins)
 	rg.GET("/counter/sessions/:id/items/:barcode", h.GetSessionItemByBarcode)
 }
-
 
 func (h *Handler) GetLSStores(c *gin.Context) {
 	lsStores, err := h.svc.GetLSStores(c.Request.Context())
@@ -57,7 +63,6 @@ func (h *Handler) GetLSStores(c *gin.Context) {
 	c.JSON(http.StatusOK, lsStores)
 }
 
-
 func (h *Handler) GetAvailableWorksheets(c *gin.Context) {
 	worksheets, err := h.svc.GetAvailableWorksheets(c.Request.Context())
 	if err != nil {
@@ -66,8 +71,6 @@ func (h *Handler) GetAvailableWorksheets(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, worksheets)
 }
- 
-
 
 func (h *Handler) UpdateSession(c *gin.Context) {
 	var req struct {
@@ -134,6 +137,36 @@ func (h *Handler) UpdateStatus(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": req.Status})
 }
 
+// AbortSession aborts a DRAFT or ACTIVE stock count session with a mandatory reason.
+func (h *Handler) AbortSession(c *gin.Context) {
+	var req struct {
+		Reason string `json:"reason" binding:"required,min=10"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	adminID := c.GetString("user_id")
+	if err := h.svc.AbortSession(c.Request.Context(), c.Param("id"), req.Reason, adminID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"aborted": true})
+}
+
+// ReopenSession reopens a POSTED session (super admin only — enforced at middleware level).
+func (h *Handler) ReopenSession(c *gin.Context) {
+	if !c.GetBool("is_super_admin") {
+		c.JSON(http.StatusForbidden, gin.H{"error": "only super admins can reopen sessions"})
+		return
+	}
+	if err := h.svc.ReopenSession(c.Request.Context(), c.Param("id")); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"reopened": true})
+}
+
 func (h *Handler) ListCounters(c *gin.Context) {
 	counters, err := h.svc.ListCounters(c.Request.Context(), c.Param("id"))
 	if err != nil {
@@ -172,7 +205,6 @@ func (h *Handler) RemoveCounter(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"removed": true})
 }
 
-// ResendOTP generates a fresh OTP and sends it to the counter's mobile number (§4.2).
 func (h *Handler) ResendOTP(c *gin.Context) {
 	counters, err := h.svc.ListCounters(c.Request.Context(), c.Param("id"))
 	if err != nil {
@@ -196,7 +228,7 @@ func (h *Handler) ResendOTP(c *gin.Context) {
 		return
 	}
 	if err := h.smsSvc.Send(c.Request.Context(), mobile,
-		"Your StockTake OTP is: "+otp+". Valid for 10 minutes."); err != nil {
+		"Your StockCount OTP is: "+otp+". Valid for 10 minutes."); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to send OTP"})
 		return
 	}
@@ -212,11 +244,29 @@ func (h *Handler) PullTheoretical(c *gin.Context) {
 }
 
 func (h *Handler) SubmitToLS(c *gin.Context) {
-	if err := h.svc.SubmitToLS(c.Request.Context(), c.Param("id")); err != nil {
+	sessionID := c.Param("id")
+	exportPath, err := h.svc.SubmitToLS(c.Request.Context(), sessionID, h.exportDir)
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "submitted to LS"})
+	resp := gin.H{"message": "submitted to LS"}
+	if exportPath != "" {
+		resp["export_url"] = fmt.Sprintf("/api/v1/sessions/%s/export", sessionID)
+	}
+	c.JSON(http.StatusOK, resp)
+}
+
+func (h *Handler) DownloadExport(c *gin.Context) {
+	sessionID := c.Param("id")
+	filePath := filepath.Join(h.exportDir, fmt.Sprintf("session-%s.xlsx", sessionID))
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "export not available yet — submit the session first"})
+		return
+	}
+	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="stockcount-%s.xlsx"`, sessionID))
+	c.Header("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+	c.File(filePath)
 }
 
 func (h *Handler) GetCounterSessions(c *gin.Context) {
@@ -229,7 +279,6 @@ func (h *Handler) GetCounterSessions(c *gin.Context) {
 	c.JSON(http.StatusOK, sessions)
 }
 
-// GetCounterSessionViews returns rich session summaries for the mobile counter app.
 func (h *Handler) GetCounterSessionViews(c *gin.Context) {
 	counterID := c.GetString("user_id")
 	views, err := h.svc.GetCounterSessionViews(c.Request.Context(), counterID)
@@ -240,7 +289,6 @@ func (h *Handler) GetCounterSessionViews(c *gin.Context) {
 	c.JSON(http.StatusOK, views)
 }
 
-// GetCounterSessionView returns a single rich session view for the mobile counter app.
 func (h *Handler) GetCounterSessionView(c *gin.Context) {
 	counterID := c.GetString("user_id")
 	view, err := h.svc.GetCounterSessionView(c.Request.Context(), c.Param("id"), counterID)
@@ -251,18 +299,16 @@ func (h *Handler) GetCounterSessionView(c *gin.Context) {
 	c.JSON(http.StatusOK, view)
 }
 
-// GetSessionBays returns all bays for a session's store, with submission status.
-func (h *Handler) GetSessionBays(c *gin.Context) {
+func (h *Handler) GetSessionBins(c *gin.Context) {
 	counterID := c.GetString("user_id")
-	bays, err := h.svc.GetSessionBays(c.Request.Context(), c.Param("id"), counterID)
+	bins, err := h.svc.GetSessionBins(c.Request.Context(), c.Param("id"), counterID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, bays)
+	c.JSON(http.StatusOK, bins)
 }
 
-// GetSessionItemByBarcode looks up a session item by barcode for the mobile counter app.
 func (h *Handler) GetSessionItemByBarcode(c *gin.Context) {
 	item, err := h.svc.GetSessionItemByBarcode(c.Request.Context(), c.Param("id"), c.Param("barcode"))
 	if err != nil {

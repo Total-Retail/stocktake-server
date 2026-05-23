@@ -11,6 +11,7 @@ import (
 	"github.com/totalretail/stocktake/internal/ls"
 	"github.com/totalretail/stocktake/internal/reporting"
 	"github.com/totalretail/stocktake/internal/session"
+	"github.com/totalretail/stocktake/internal/settings"
 	"github.com/totalretail/stocktake/internal/sms"
 	"github.com/totalretail/stocktake/internal/store"
 	"github.com/totalretail/stocktake/internal/variance"
@@ -31,27 +32,28 @@ func New(cfg *config.Config, db *gorm.DB) *Server {
 	}
 	rdb := redis.NewClient(opt)
 
-	// Hub created first so it can be injected into session service
 	hub := ws.NewHub()
 
 	// Services
-	authSvc     := auth.NewService(db, rdb, cfg.JWTSecret, cfg.OTPExpiryMinutes, cfg.OTPMaxRequests)
-	smsSvc      := sms.NewClient(cfg.SMSBaseURL, cfg.SMSAPIKey)
-	lsClient    := ls.NewClient(cfg.LSBaseURL, cfg.LSCompanyID, cfg.LSUsername, cfg.LSPassword)
-	storeSvc    := store.NewService(db)
-	sessionSvc  := session.NewService(db, lsClient, hub) // hub injected — broadcasts session.status_changed
-	countingSvc := counting.NewService(db)
-	varianceSvc := variance.NewService(db)
-	reportSvc   := reporting.NewService(db)
+	authSvc      := auth.NewService(db, rdb, cfg.JWTSecret, cfg.OTPExpiryMinutes, cfg.OTPMaxRequests)
+	smsSvc       := sms.NewClient(cfg.SMSBaseURL, cfg.SMSAPIKey)
+	lsClient     := ls.NewClient(cfg.LSBaseURL, cfg.LSCompanyID, cfg.LSUsername, cfg.LSPassword)
+	storeSvc     := store.NewService(db)
+	sessionSvc   := session.NewService(db, lsClient, hub)
+	countingSvc  := counting.NewService(db)
+	varianceSvc  := variance.NewService(db)
+	reportSvc    := reporting.NewService(db)
+	settingsSvc  := settings.NewService(db)
 
 	// Handlers
 	authHandler      := auth.NewHandler(authSvc, smsSvc, db, cfg.CounterTokenHours, cfg.AdminTokenHours)
 	adminUserHandler := auth.NewAdminUserHandler(db)
 	storeHandler     := store.NewHandler(storeSvc)
-	sessionHandler   := session.NewHandler(sessionSvc, authSvc, smsSvc, cfg.CounterTokenHours)
+	sessionHandler   := session.NewHandler(sessionSvc, authSvc, smsSvc, cfg.CounterTokenHours, cfg.ExportDir)
 	countingHandler  := counting.NewHandler(countingSvc, hub)
 	varianceHandler  := variance.NewHandler(varianceSvc, cfg.VarianceTolerancePct)
 	reportingHandler := reporting.NewHandler(reportSvc)
+	settingsHandler  := settings.NewHandler(settingsSvc)
 
 	router := gin.Default()
 	router.Use(corsMiddleware())
@@ -72,6 +74,7 @@ func New(cfg *config.Config, db *gorm.DB) *Server {
 	varianceHandler.RegisterRoutes(adminRoutes)
 	reportingHandler.RegisterRoutes(adminRoutes)
 	adminUserHandler.RegisterAdminUserRoutes(adminRoutes)
+	settingsHandler.RegisterRoutes(adminRoutes)
 
 	// Counter-authenticated routes
 	counterRoutes := api.Group("", middleware.RequireAuth(authSvc, auth.TokenCounter))

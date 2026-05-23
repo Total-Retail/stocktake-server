@@ -15,6 +15,7 @@ export default function NewStorePage() {
     store_name:    '',
     store_code:    '',
     ls_store_code: '',
+    location_code: '',
   })
   const [loading, setLoading] = useState(false)
   const [error, setError]     = useState('')
@@ -137,6 +138,22 @@ export default function NewStorePage() {
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
               />
               <p className="text-xs text-gray-400 mt-1">Must match the store code in LS Commerce Service</p>
+            </div>
+
+            {/* Location code */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Location code
+                <span className="ml-1 font-normal text-gray-400">(optional)</span>
+              </label>
+              <input
+                type="text"
+                value={form.location_code}
+                onChange={e => set('location_code', e.target.value)}
+                placeholder="e.g. HQ-001"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+              />
+              <p className="text-xs text-gray-400 mt-1">LS location code if applicable</p>
             </div>
 
             {error && <p className="text-sm text-red-600">{error}</p>}

@@ -13,7 +13,7 @@ import (
 
 type Service interface {
 	SubmitBatch(ctx context.Context, sessionID, counterID string, lines []CountLine) error
-	SubmitBin(ctx context.Context, sessionID, bayID, counterID string) (*BinSubmission, error)
+	SubmitBin(ctx context.Context, sessionID, binID, counterID string) (*BinSubmission, error)
 	GetRecounts(ctx context.Context, sessionID, counterID string) ([]CountLine, error)
 }
 
@@ -34,8 +34,8 @@ func (s *service) SubmitBatch(ctx context.Context, sessionID, counterID string, 
 		Create(&lines).Error
 }
 
-func (s *service) SubmitBin(ctx context.Context, sessionID, bayID, counterID string) (*BinSubmission, error) {
-	sub := BinSubmission{SessionID: sessionID, BayID: bayID, CounterID: counterID}
+func (s *service) SubmitBin(ctx context.Context, sessionID, binID, counterID string) (*BinSubmission, error) {
+	sub := BinSubmission{SessionID: sessionID, BinID: binID, CounterID: counterID}
 	return &sub, s.db.WithContext(ctx).Create(&sub).Error
 }
 
@@ -59,7 +59,7 @@ func NewHandler(svc Service, hub *ws.Hub) *Handler { return &Handler{svc: svc, h
 
 func (h *Handler) RegisterRoutes(rg *gin.RouterGroup) {
 	rg.POST("/sessions/:id/counts", h.SubmitBatch)
-	rg.POST("/sessions/:id/bays/:bay_id/submit", h.SubmitBin)
+	rg.POST("/sessions/:id/bins/:bin_id/submit", h.SubmitBin)
 	rg.GET("/counter/sessions/:id/recounts", h.GetRecounts)
 }
 
@@ -84,16 +84,16 @@ func (h *Handler) SubmitBatch(c *gin.Context) {
 
 func (h *Handler) SubmitBin(c *gin.Context) {
 	sessionID := c.Param("id")
-	bayID := c.Param("bay_id")
+	binID     := c.Param("bin_id")
 	counterID := c.GetString("user_id")
-	sub, err := h.svc.SubmitBin(c.Request.Context(), sessionID, bayID, counterID)
+	sub, err := h.svc.SubmitBin(c.Request.Context(), sessionID, binID, counterID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 	h.hub.Broadcast(sessionID, ws.Event{
 		Type: ws.EventBinCompleted, SessionID: sessionID,
-		Payload: gin.H{"bay_id": bayID, "counter_id": counterID},
+		Payload: gin.H{"bin_id": binID, "counter_id": counterID},
 	})
 	c.JSON(http.StatusOK, sub)
 }

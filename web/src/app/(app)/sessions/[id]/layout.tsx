@@ -4,7 +4,8 @@ import { useEffect, useState } from 'react'
 import { useParams, usePathname } from 'next/navigation'
 import Link from 'next/link'
 import { sessions } from '@/lib/api'
-import type { Session } from '@/types'
+import type { Session, SessionStatus } from '@/types'
+import { SESSION_TYPE_LABELS, SESSION_STATUS_COLOURS } from '@/types'
 import { StatusBadge } from '@/components/ui'
 import { clsx } from 'clsx'
 
@@ -32,18 +33,22 @@ export default function SessionLayout({ children }: { children: React.ReactNode 
         <div className="flex items-center justify-between mb-3">
           <div>
             <p className="text-xs text-gray-400 mb-0.5">
-              <Link href="/sessions" className="hover:text-teal-600">Stock Takes</Link>
+              <Link href="/sessions" className="hover:text-teal-600">Stock Counts</Link>
               {' / '}
-              <span className="text-gray-600">{session?.session_date ?? '...'}</span>
+              <span className="text-gray-600">{session?.stock_count_date ?? '...'}</span>
             </p>
             <div className="flex items-center gap-3">
               <h1 className="text-lg font-semibold text-gray-900">
-                {session?.session_date ?? 'Loading...'}
+                {session?.stock_count_date ?? 'Loading...'}
               </h1>
-              {session && <StatusBadge status={session.status} />}
+              {session && (
+                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${SESSION_STATUS_COLOURS[session.status as SessionStatus] ?? 'bg-gray-100 text-gray-700'}`}>
+                  {session.status}
+                </span>
+              )}
               {session && (
                 <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded">
-                  {session.type}
+                  {SESSION_TYPE_LABELS[session.type] ?? session.type}
                 </span>
               )}
             </div>

@@ -3,8 +3,9 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { sessions, stores } from '@/lib/api'
-import type { Session, Store } from '@/types'
-import { Card, CardBody, CardHeader, StatCard, StatusBadge, Spinner, Empty } from '@/components/ui'
+import type { Session, Store, SessionStatus } from '@/types'
+import { SESSION_TYPE_LABELS, SESSION_STATUS_LABELS, SESSION_STATUS_COLOURS } from '@/types'
+import { Card, CardBody, CardHeader, StatCard, Spinner, Empty } from '@/components/ui'
 
 export default function DashboardPage() {
   const [activeSessions, setActiveSessions] = useState<Session[]>([])
@@ -26,11 +27,11 @@ export default function DashboardPage() {
     <div className="p-6 space-y-6">
       <div>
         <h1 className="text-xl font-semibold text-gray-900">Dashboard</h1>
-        <p className="text-sm text-gray-500 mt-0.5">Overview of active stock takes</p>
+        <p className="text-sm text-gray-500 mt-0.5">Overview of active stock counts</p>
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard label="Active stock takes" value={activeSessions.length} />
+        <StatCard label="Active stock counts" value={activeSessions.length} />
         <StatCard label="Total stores" value={allStores.length} />
         <StatCard label="Pending review" value={activeSessions.filter(s => s.status === 'PENDING_REVIEW').length} />
         <StatCard label="Stores active" value={activeSessions.length} />
@@ -38,11 +39,11 @@ export default function DashboardPage() {
 
       <Card>
         <CardHeader>
-          <h2 className="text-sm font-semibold text-gray-700">Active stock takes</h2>
+          <h2 className="text-sm font-semibold text-gray-700">Active stock counts</h2>
         </CardHeader>
         <CardBody className="p-0">
           {activeSessions.length === 0 ? (
-            <Empty message="No active stock takes" />
+            <Empty message="No active stock counts" />
           ) : (
             <table className="w-full text-sm">
               <thead className="bg-gray-50 border-b border-gray-100">
@@ -58,9 +59,13 @@ export default function DashboardPage() {
                     <td className="px-4 py-3 font-medium text-gray-900">
                       {allStores.find(s => s.id === sess.store_id)?.store_name ?? sess.store_id}
                     </td>
-                    <td className="px-4 py-3 text-gray-600">{sess.session_date}</td>
-                    <td className="px-4 py-3 text-gray-600">{sess.type}</td>
-                    <td className="px-4 py-3"><StatusBadge status={sess.status} /></td>
+                    <td className="px-4 py-3 text-gray-600">{sess.stock_count_date}</td>
+                    <td className="px-4 py-3 text-gray-600">{SESSION_TYPE_LABELS[sess.type] ?? sess.type}</td>
+                    <td className="px-4 py-3">
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${SESSION_STATUS_COLOURS[sess.status as SessionStatus] ?? 'bg-gray-100 text-gray-700'}`}>
+                        {SESSION_STATUS_LABELS[sess.status as SessionStatus] ?? sess.status}
+                      </span>
+                    </td>
                     <td className="px-4 py-3">
                       <Link href={`/sessions/${sess.id}`} className="text-teal-600 hover:text-teal-700 font-medium text-xs">
                         View →

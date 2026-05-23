@@ -7,7 +7,7 @@ type CounterPerformance struct {
 	CounterName     string    `json:"counter_name"`
 	Mobile          string    `json:"mobile"`
 	ItemsCounted    int       `json:"items_counted"`
-	BaysCompleted   int       `json:"bays_completed"`
+	BinsCompleted   int       `json:"bins_completed"`
 	RecountRate     float64   `json:"recount_rate_pct"`
 	RecountAccepted int       `json:"recount_accepted"`
 	RecountRejected int       `json:"recount_rejected"`
@@ -23,8 +23,8 @@ type HourlyActivity struct {
 type SessionSummary struct {
 	SessionID      string               `json:"session_id"`
 	TotalItems     int                  `json:"total_items"`
-	TotalBays      int                  `json:"total_bays"`
-	BaysCompleted  int                  `json:"bays_completed"`
+	TotalBins      int                  `json:"total_bins"`
+	BinsCompleted  int                  `json:"bins_completed"`
 	TotalCounts    int                  `json:"total_counts"`
 	Counters       []CounterPerformance `json:"counters"`
 	HourlyActivity []HourlyActivity     `json:"hourly_activity"`

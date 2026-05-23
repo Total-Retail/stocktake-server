@@ -152,9 +152,9 @@ jobs:
               ${{ vars.SSH_USER }}@${{ vars.SSH_HOST }} \
               "wsl -d Ubuntu -- bash" << 'WSLEOF'
           curl -sf http://localhost:8084/health && echo "API-OK"
-          HTTP_CODE=$(curl -sf -o /dev/null -w '%{http_code}' http://localhost:8084/)
+          HTTP_CODE=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8084/)
           echo "Web returned: $HTTP_CODE"
-          echo "$HTTP_CODE" | grep -qE '^(200|304)' && echo "WEB-OK"
+          [ "$HTTP_CODE" -lt 400 ] && echo "WEB-OK" || (echo "WEB check failed" && exit 1)
           WSLEOF
 
       # ── 10. Cleanup ──────────────────────────────────────────────────────────

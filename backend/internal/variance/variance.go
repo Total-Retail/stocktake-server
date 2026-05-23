@@ -61,7 +61,7 @@ func (s *service) GetConsolidated(ctx context.Context, sessionID string) ([]Cons
 		LEFT JOIN theoretical_stocks ts
 			ON ts.session_id = si.session_id AND ts.item_no = si.item_no
 		WHERE si.session_id = ?
-		GROUP BY si.item_no, si.description, ts.theoretical_qty
+		GROUP BY si.item_no, si.description, si.unit_cost, ts.theoretical_qty
 		ORDER BY si.item_no`, sessionID, sessionID).Scan(&lines).Error
 	return lines, err
 }

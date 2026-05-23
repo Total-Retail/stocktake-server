@@ -15,8 +15,8 @@ type Store struct {
 // Area was formerly Zone. TableName is explicit so GORM finds the renamed table.
 type Area struct {
 	ID        string    `json:"id"         gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
-	StoreID   string    `json:"store_id"   gorm:"type:uuid;not null;index"`
-	AreaCode  string    `json:"area_code"  gorm:"not null"`
+	StoreID   string    `json:"store_id"   gorm:"type:uuid;not null;uniqueIndex:idx_areas_store_area"`
+	AreaCode  string    `json:"area_code"  gorm:"not null;uniqueIndex:idx_areas_store_area"`
 	AreaName  string    `json:"area_name"  gorm:"not null"`
 	CreatedAt time.Time `json:"created_at"`
 }
@@ -25,8 +25,8 @@ func (Area) TableName() string { return "areas" }
 
 type Aisle struct {
 	ID        string    `json:"id"         gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
-	AreaID    string    `json:"area_id"    gorm:"type:uuid;not null;index"`
-	AisleCode string    `json:"aisle_code" gorm:"not null"`
+	AreaID    string    `json:"area_id"    gorm:"type:uuid;not null;uniqueIndex:idx_aisles_area_aisle"`
+	AisleCode string    `json:"aisle_code" gorm:"not null;uniqueIndex:idx_aisles_area_aisle"`
 	AisleName string    `json:"aisle_name" gorm:"not null"`
 	CreatedAt time.Time `json:"created_at"`
 }
@@ -34,8 +34,8 @@ type Aisle struct {
 // Bin was formerly Bay. TableName is explicit so GORM finds the renamed table.
 type Bin struct {
 	ID        string    `json:"id"         gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
-	AisleID   string    `json:"aisle_id"   gorm:"type:uuid;not null;index"`
-	BinCode   string    `json:"bin_code"   gorm:"not null"`
+	AisleID   string    `json:"aisle_id"   gorm:"type:uuid;not null;uniqueIndex:idx_bins_aisle_bin"`
+	BinCode   string    `json:"bin_code"   gorm:"not null;uniqueIndex:idx_bins_aisle_bin"`
 	BinName   string    `json:"bin_name"   gorm:"not null"`
 	Barcode   string    `json:"barcode"    gorm:"uniqueIndex;not null"`
 	Active    bool      `json:"active"     gorm:"default:true"`

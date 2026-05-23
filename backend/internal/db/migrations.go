@@ -38,6 +38,13 @@ func RunSchemaRenames(db *gorm.DB) error {
 		// ── Store location code ───────────────────────────────────────────────
 		{"ALTER TABLE IF EXISTS stores ADD COLUMN IF NOT EXISTS location_code TEXT", "stores: add location_code"},
 
+		// ── Composite unique indexes required by ON CONFLICT upserts ──────────
+		// The original SQL migration named constraints after zone_code/bay_code.
+		// Creating them explicitly with IF NOT EXISTS ensures upserts always work.
+		{"CREATE UNIQUE INDEX IF NOT EXISTS idx_areas_store_area  ON areas(store_id, area_code)", "areas: unique(store_id, area_code)"},
+		{"CREATE UNIQUE INDEX IF NOT EXISTS idx_aisles_area_aisle ON aisles(area_id, aisle_code)", "aisles: unique(area_id, aisle_code)"},
+		{"CREATE UNIQUE INDEX IF NOT EXISTS idx_bins_aisle_bin    ON bins(aisle_id, bin_code)", "bins: unique(aisle_id, bin_code)"},
+
 		// ── Drop old partial-unique index (references old status values) ──────
 		{"DROP INDEX IF EXISTS idx_sessions_store_type_active", "drop stale session unique index"},
 	}

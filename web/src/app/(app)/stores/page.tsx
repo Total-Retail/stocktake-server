@@ -48,7 +48,7 @@ export default function StoresPage() {
                     <td className="px-4 py-3 text-gray-600 font-mono text-xs">{s.store_code}</td>
                     <td className="px-4 py-3 text-gray-500 font-mono text-xs">{s.ls_store_code || '—'}</td>
                     <td className="px-4 py-3">
-                      <Link href={`/stores/${s.id}/layout`}
+                      <Link href={`/stores/${s.id}`}
                         className="text-xs text-teal-600 hover:text-teal-700 font-medium">
                         View layout →
                       </Link>

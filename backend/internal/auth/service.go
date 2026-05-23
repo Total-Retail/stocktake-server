@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"fmt"
 	"math/big"
+	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -12,6 +13,23 @@ import (
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 )
+
+// NormalizeMobile converts any common Zimbabwean mobile format to +263XXXXXXXXX.
+// Handles: +263..., 0..., 263..., or bare 9-digit local number.
+func NormalizeMobile(mobile string) string {
+	mobile = strings.ReplaceAll(mobile, " ", "")
+	mobile = strings.ReplaceAll(mobile, "-", "")
+	switch {
+	case strings.HasPrefix(mobile, "+263"):
+		return mobile
+	case strings.HasPrefix(mobile, "263"):
+		return "+" + mobile
+	case strings.HasPrefix(mobile, "0"):
+		return "+263" + mobile[1:]
+	default:
+		return "+263" + mobile
+	}
+}
 
 type TokenType string
 

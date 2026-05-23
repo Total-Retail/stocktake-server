@@ -356,6 +356,7 @@ func (s *service) SubmitToLS(ctx context.Context, sessionID, exportDir string) (
 }
 
 func (s *service) UpsertCounter(ctx context.Context, name, mobile string) (*auth.Counter, error) {
+	mobile = auth.NormalizeMobile(mobile)
 	c := auth.Counter{Name: name, MobileNumber: mobile}
 	err := s.db.WithContext(ctx).
 		Where(auth.Counter{MobileNumber: mobile}).
@@ -392,10 +393,11 @@ func (s *service) GetCounterSessions(ctx context.Context, counterID string) ([]S
 	var sessions []Session
 	err := s.db.WithContext(ctx).
 		Joins("JOIN session_counters ON session_counters.session_id = stock_count_sessions.id").
-		Where("session_counters.counter_id = ? AND session_counters.active = ? AND stock_count_sessions.status = ?",
-			counterID, true, StatusActive).
+		Where("session_counters.counter_id = ? AND session_counters.active = ? AND stock_count_sessions.status IN ?",
+			counterID, true, []SessionStatus{StatusActive, StatusReopened}).
 		Order("stock_count_sessions.session_date desc").
 		Find(&sessions).Error
+	log.Printf("DEV [GetCounterSessions] counterID=%s found=%d err=%v", counterID, len(sessions), err)
 	return sessions, err
 }
 

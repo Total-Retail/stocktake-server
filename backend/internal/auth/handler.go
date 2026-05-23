@@ -66,6 +66,7 @@ func (h *Handler) RequestOTP(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	req.Mobile = NormalizeMobile(req.Mobile)
 	otp, err := h.svc.GenerateOTP(c.Request.Context(), req.Mobile)
 	if err != nil {
 		c.JSON(http.StatusTooManyRequests, gin.H{"error": err.Error()})
@@ -88,6 +89,7 @@ func (h *Handler) VerifyOTP(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	req.Mobile = NormalizeMobile(req.Mobile)
 	valid, err := h.svc.VerifyOTP(c.Request.Context(), req.Mobile, req.OTP)
 	if err != nil || !valid {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired OTP"})

@@ -102,7 +102,7 @@ jobs:
 
           ssh -i ~/.ssh/deploy_key -p ${{ vars.SSH_PORT }} \
               ${{ vars.SSH_USER }}@${{ vars.SSH_HOST }} \
-              "wsl -d Ubuntu -- bash -c \"cp /mnt/c/stocktake-staging-env /home/stocktake/app/.env\""
+              "wsl -d Ubuntu -- cp /mnt/c/stocktake-staging-env /home/stocktake/app/.env"
 
       # ── 6. Sync code ─────────────────────────────────────────────────────────
       - name: Sync code to server
@@ -120,32 +120,57 @@ jobs:
 
           ssh -i ~/.ssh/deploy_key -p ${{ vars.SSH_PORT }} \
               ${{ vars.SSH_USER }}@${{ vars.SSH_HOST }} \
-              "wsl -d Ubuntu -- bash -c \"cd /home/stocktake/app && tar -xzf /mnt/c/stocktake-staging.tar.gz && echo done\""
+              "wsl -d Ubuntu -- tar -xzf /mnt/c/stocktake-staging.tar.gz -C /home/stocktake/app"
 
-# ── 7. Build and restart containers ──────────────────────────────────────
+      # ── 7. Build and restart containers ──────────────────────────────────────
       - name: Deploy containers
         run: |
-          ssh -i ~/.ssh/deploy_key -p ${{ vars.SSH_PORT }} \
+          ssh -i ~/.ssh/deploy_key \
+              -p ${{ vars.SSH_PORT }} \
               ${{ vars.SSH_USER }}@${{ vars.SSH_HOST }} \
-              "wsl -d Ubuntu -- bash -c \"set -e && cd /home/stocktake/app && docker compose pull --ignore-pull-failures && docker compose up --build -d --remove-orphans && docker image prune -f && echo done\""
+              "wsl -d Ubuntu -- bash" << 'WSLEOF'
+          set -e
+          cd /home/stocktake/app
+          echo "→ Pulling latest images..."
+          docker compose pull --ignore-pull-failures
+          echo "→ Building and starting services..."
+          docker compose up --build -d --remove-orphans
+          docker image prune -f
+          echo "✓ Containers started"
+          WSLEOF
 
       # ── 8. Wait for all services healthy ────────────────────────────────────
       - name: Wait for services to be healthy
         run: |
-          ssh -i ~/.ssh/deploy_key -p ${{ vars.SSH_PORT }} \
+          ssh -i ~/.ssh/deploy_key \
+              -p ${{ vars.SSH_PORT }} \
               ${{ vars.SSH_USER }}@${{ vars.SSH_HOST }} \
-              "wsl -d Ubuntu -- bash -c \"cd /home/stocktake/app && for i in \$(seq 1 40); do sleep 5; STATUS=\$(docker compose ps --format json 2>/dev/null | grep -c '\\\"Health\\\":\\\"healthy\\\"' || true); TOTAL=\$(docker compose ps --format json 2>/dev/null | grep -c '\\\"Health\\\"' || true); echo Attempt \$i: \$STATUS/\$TOTAL services healthy; if docker exec stocktake-api wget -qO /dev/null http://localhost:8080/health 2>/dev/null && docker exec stocktake-web wget -qO /dev/null http://localhost:3000/ 2>/dev/null; then echo All core services healthy; exit 0; fi; done; echo Timed out; docker compose logs --tail=20; exit 1\""
+              "wsl -d Ubuntu -- bash" << 'WSLEOF'
+          cd /home/stocktake/app
+          echo "Waiting for services to become healthy..."
+          for i in $(seq 1 40); do
+            sleep 5
+            API_OK=0
+            WEB_OK=0
+            docker exec stocktake-api  wget -qO /dev/null http://localhost:8080/health > /dev/null 2>&1 && API_OK=1 || true
+            docker exec stocktake-web  wget -qO /dev/null http://localhost:3000/       > /dev/null 2>&1 && WEB_OK=1 || true
+            echo "Attempt $i: api=$API_OK web=$WEB_OK"
+            if [ "$API_OK" = "1" ] && [ "$WEB_OK" = "1" ]; then
+              echo "All core services healthy"
+              exit 0
+            fi
+          done
+          echo "Timed out waiting for services"
+          docker compose logs --tail=30
+          exit 1
+          WSLEOF
 
       # ── 9. Verify stack responding through nginx ─────────────────────────────
       - name: Verify stack is responding
         run: |
-          ssh -i ~/.ssh/deploy_key -p ${{ vars.SSH_PORT }} \
+          ssh -i ~/.ssh/deploy_key \
+              -p ${{ vars.SSH_PORT }} \
               ${{ vars.SSH_USER }}@${{ vars.SSH_HOST }} \
-              "wsl -d Ubuntu -- bash -c \"curl -sf http://localhost:8084/health && echo API-OK && curl -sf -o /dev/null -w '%{http_code}' http://localhost:8084/ | grep -qE '^(200|304)' && echo WEB-OK\""
-
-      # ── 10. Cleanup ──────────────────────────────────────────────────────────
-      - name: Cleanup
-        if: always()
-        run: |
-          sudo killall openvpn || true
-          rm -f deployment.env .github/vpn/spar.ovpn /tmp/stocktake.tar.gz
+              "wsl -d Ubuntu -- bash" << 'WSLEOF'
+          curl -sf http://localhost:8084/health && echo "API-OK"
+          HTTP_CODE=$(curl -sf -o /dev/null -w 

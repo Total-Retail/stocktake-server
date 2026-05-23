@@ -15,16 +15,18 @@ type Service interface {
 type client struct {
 	baseURL string
 	apiKey  string
+	sender  string
 	http    *http.Client
 }
 
-func NewClient(baseURL, apiKey string) Service {
-	return &client{baseURL: baseURL, apiKey: apiKey, http: &http.Client{}}
+func NewClient(baseURL, apiKey, sender string) Service {
+	return &client{baseURL: baseURL, apiKey: apiKey, sender: sender, http: &http.Client{}}
 }
 
 func (c *client) Send(ctx context.Context, mobile, message string) error {
 	payload := map[string]string{
 		"to":      mobile,
+		"sender":  c.sender,
 		"message": message,
 	}
 	body, _ := json.Marshal(payload)
@@ -34,7 +36,7 @@ func (c *client) Send(ctx context.Context, mobile, message string) error {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("X-API-KEY", c.apiKey)
 
 	resp, err := c.http.Do(req)
 	if err != nil {

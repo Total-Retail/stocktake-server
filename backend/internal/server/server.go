@@ -36,7 +36,7 @@ func New(cfg *config.Config, db *gorm.DB) *Server {
 
 	// Services
 	authSvc      := auth.NewService(db, rdb, cfg.JWTSecret, cfg.OTPExpiryMinutes, cfg.OTPMaxRequests)
-	smsSvc       := sms.NewClient(cfg.SMSBaseURL, cfg.SMSAPIKey)
+	smsSvc       := sms.NewClient(cfg.SMSBaseURL, cfg.SMSAPIKey, cfg.SMSSender)
 	lsClient     := ls.NewClient(cfg.LSBaseURL, cfg.LSCompanyID, cfg.LSUsername, cfg.LSPassword)
 	storeSvc     := store.NewService(db)
 	sessionSvc   := session.NewService(db, lsClient, hub)

@@ -74,6 +74,8 @@ jobs:
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
           OTP_SECRET: ${{ secrets.OTP_SECRET }}
           SMS_API_KEY: ${{ secrets.SMS_API_KEY }}
+          SMS_BASE_URL: ${{ vars.SMS_BASE_URL }}
+          SMS_SENDER: ${{ vars.SMS_SENDER }}
           LS_BASE_URL: ${{ vars.LS_BASE_URL }}
           LS_USERNAME: ${{ vars.LS_USERNAME }}
           LS_PASSWORD: ${{ secrets.LS_PASSWORD }}
@@ -85,7 +87,8 @@ jobs:
           printf "JWT_SECRET=%s\n" "$JWT_SECRET"              >> deployment.env
           printf "OTP_SECRET=%s\n" "$OTP_SECRET"              >> deployment.env
           printf "SMS_API_KEY=%s\n" "$SMS_API_KEY"            >> deployment.env
-          printf "SMS_BASE_URL=https://sms.localhost.co.zw/api\n" >> deployment.env
+          printf "SMS_BASE_URL=%s\n" "$SMS_BASE_URL"          >> deployment.env
+          printf "SMS_SENDER=%s\n" "$SMS_SENDER"              >> deployment.env
           printf "LS_BASE_URL=%s\n" "$LS_BASE_URL"            >> deployment.env
           printf "LS_USERNAME=%s\n" "$LS_USERNAME"            >> deployment.env
           printf "LS_PASSWORD=%s\n" "$LS_PASSWORD"            >> deployment.env

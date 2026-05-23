@@ -17,6 +17,7 @@ type Config struct {
 
 	SMSBaseURL string
 	SMSAPIKey  string
+	SMSSender  string
 
 	LSBaseURL   string
 	LSUsername  string
@@ -42,8 +43,9 @@ func Load() *Config {
 		OTPSecret:   mustEnv("OTP_SECRET"),
 
 		// SMS and LS are required in production but warn-only so dev can start without them
-		SMSBaseURL: getEnv("SMS_BASE_URL", "https://sms.localhost.co.zw/api"),
+		SMSBaseURL: getEnv("SMS_BASE_URL", "https://sms.localhost.co.zw/api/v1/sms"),
 		SMSAPIKey:  warnEnv("SMS_API_KEY", "placeholder-set-in-production"),
+		SMSSender:  getEnv("SMS_SENDER", "StockCount"),
 
 		LSBaseURL:   warnEnv("LS_BASE_URL", "http://placeholder"),
 		LSUsername:  warnEnv("LS_USERNAME", "placeholder"),

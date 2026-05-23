@@ -33,11 +33,12 @@ export default function NewStorePage() {
       setForm(f => ({ ...f, ls_store_code: code }))
       return
     }
-    setForm({
+    setForm(f => ({
+      ...f,
       ls_store_code: picked.code,
       store_name:    picked.name,
       store_code:    picked.code.replace(/\s+/g, '').toUpperCase(),
-    })
+    }))
   }
 
   function set(field: string, value: string) {

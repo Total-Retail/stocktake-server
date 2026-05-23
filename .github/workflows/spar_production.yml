@@ -152,8 +152,8 @@ jobs:
             sleep 5
             API_OK=0
             WEB_OK=0
-            docker exec stocktake-api  wget -qO /dev/null http://localhost:8080/health > /dev/null 2>&1 && API_OK=1 || true
-            docker exec stocktake-web  wget -qO /dev/null http://localhost:3000/       > /dev/null 2>&1 && WEB_OK=1 || true
+            docker exec stocktake-api wget -qO /dev/null http://localhost:8080/health > /dev/null 2>&1 && API_OK=1 || true
+            [ "$(docker inspect --format='{{.State.Health.Status}}' stocktake-web 2>/dev/null)" = "healthy" ] && WEB_OK=1 || true
             echo "Attempt $i: api=$API_OK web=$WEB_OK"
             if [ "$API_OK" = "1" ] && [ "$WEB_OK" = "1" ]; then
               echo "All core services healthy"
@@ -173,4 +173,14 @@ jobs:
               ${{ vars.SSH_USER }}@${{ vars.SSH_HOST }} \
               "wsl -d Ubuntu -- bash" << 'WSLEOF'
           curl -sf http://localhost:8084/health && echo "API-OK"
-          HTTP_CODE=$(curl -sf -o /dev/null -w 
+          HTTP_CODE=$(curl -sf -o /dev/null -w '%{http_code}' http://localhost:8084/)
+          echo "Web returned: $HTTP_CODE"
+          echo "$HTTP_CODE" | grep -qE '^(200|304)' && echo "WEB-OK"
+          WSLEOF
+
+      # ── 10. Cleanup ──────────────────────────────────────────────────────────
+      - name: Cleanup
+        if: always()
+        run: |
+          sudo killall openvpn || true
+          rm -f deployment.env .github/vpn/spar.ovpn /tmp/stocktake.tar.gz

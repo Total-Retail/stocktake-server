@@ -91,7 +91,7 @@ services:
     networks:
       - internal
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO /dev/null http://0.0.0.0:3000/ || exit 1"]
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/',function(r){process.exit(r.statusCode>=500?1:0)}).on('error',function(){process.exit(1)})"]
       interval: 15s
       timeout: 10s
       retries: 5

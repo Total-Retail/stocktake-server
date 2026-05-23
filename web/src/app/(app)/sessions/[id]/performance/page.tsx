@@ -14,7 +14,7 @@ export default function PerformancePage() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    reporting.getCounterPerformance(id).then(setCounters).finally(() => setLoading(false))
+    reporting.getCounterPerformance(id).then(data => setCounters(data ?? [])).finally(() => setLoading(false))
   }, [id])
 
   if (loading) return <div className="flex justify-center items-center h-64"><Spinner size="lg" /></div>

@@ -43,6 +43,9 @@ func (s *service) GetCounterPerformance(ctx context.Context, sessionID string) (
 		GROUP BY c.id, c.name, c.mobile_number
 		ORDER BY items_counted DESC`,
 		sessionID, sessionID, sessionID, sessionID).Scan(&results).Error
+	if results == nil {
+		results = []CounterPerformance{}
+	}
 	return results, err
 }
 

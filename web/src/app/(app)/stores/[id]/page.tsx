@@ -63,6 +63,18 @@ export default function StoreLayoutPage() {
     } finally { setSaving(null) }
   }
 
+  async function downloadLabel(url: string, filename: string) {
+    const token = localStorage.getItem('st_token')
+    const res = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+    if (!res.ok) { setError('Failed to download label'); return }
+    const blob = await res.blob()
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = filename
+    a.click()
+    URL.revokeObjectURL(a.href)
+  }
+
   if (loading) return <div className="flex justify-center items-center h-64"><Spinner size="lg" /></div>
 
   return (
@@ -83,9 +95,10 @@ export default function StoreLayoutPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <a href={stores.labelsUrl(id)} target="_blank" rel="noreferrer">
-            <Button variant="secondary" size="sm">Download all labels</Button>
-          </a>
+          <Button variant="secondary" size="sm"
+            onClick={() => downloadLabel(`/api/v1/stores/${id}/labels`, `labels-${id}.svg`)}>
+            Download all labels
+          </Button>
           <Link href={`/stores/${id}/edit`}>
             <Button variant="secondary" size="sm">Edit store</Button>
           </Link>
@@ -227,8 +240,8 @@ export default function StoreLayoutPage() {
                     <td className="px-4 py-2.5 text-gray-900">{bin.bin_name}</td>
                     <td className="px-4 py-2.5 font-mono text-xs text-gray-400">{bin.barcode}</td>
                     <td className="px-4 py-2.5">
-                      <a href={stores.binLabelUrl(id, bin.id)} target="_blank" rel="noreferrer"
-                        className="text-teal-600 hover:text-teal-700 text-xs font-medium">Label</a>
+                      <button onClick={() => downloadLabel(`/api/v1/stores/${id}/bins/${bin.id}/label`, `label-${bin.bin_code}.svg`)}
+                        className="text-teal-600 hover:text-teal-700 text-xs font-medium">Label</button>
                     </td>
                   </tr>
                 ))}

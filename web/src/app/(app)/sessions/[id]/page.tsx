@@ -16,10 +16,10 @@ type Worksheet = {
 
 const STATUS_ACTIONS: Record<string, { label: string; next: string; variant: 'primary' | 'danger' | 'secondary' }[]> = {
   DRAFT:          [{ label: 'Activate',                               next: 'ACTIVE',               variant: 'primary'   }],
-  ACTIVE:         [{ label: 'Complete counting & pull theoreticals',  next: 'complete_and_pull',    variant: 'primary'   }],
+  ACTIVE:         [{ label: 'Complete counting',                       next: 'complete_and_pull',    variant: 'primary'   }],
   PENDING_REVIEW: [{ label: 'Submit to LS',                           next: 'submit',               variant: 'primary'   }],
   POSTED:         [],
-  REOPENED:       [{ label: 'Complete counting & pull theoreticals',  next: 'complete_and_pull',    variant: 'primary'   }],
+  REOPENED:       [{ label: 'Complete counting',                       next: 'complete_and_pull',    variant: 'primary'   }],
   ABORTED:        [],
 }
 
@@ -94,7 +94,7 @@ async function handleAction(action: string) {
     } else if (action === 'complete_and_pull') {
       await sessionsApi.pullTheoretical(id)
       await sessionsApi.updateStatus(id, 'PENDING_REVIEW')
-      setSuccess('Theoreticals pulled. Session is now in Pending Review.')
+      setSuccess('Counting complete. Session is now in Pending Review.')
     } else {
       await sessionsApi.updateStatus(id, action)
       setSuccess('Session status updated.')

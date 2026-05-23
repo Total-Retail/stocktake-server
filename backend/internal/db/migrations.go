@@ -35,6 +35,9 @@ func RunSchemaRenames(db *gorm.DB) error {
 		{"ALTER TABLE IF EXISTS count_lines RENAME COLUMN bay_id TO bin_id", "count_lines: bay_id → bin_id"},
 		{"ALTER TABLE IF EXISTS bin_submissions RENAME COLUMN bay_id TO bin_id", "bin_submissions: bay_id → bin_id"},
 
+		// ── session_items: uom → uo_m (GORM names the field uo_m) ───────────
+		{"ALTER TABLE IF EXISTS session_items RENAME COLUMN uom TO uo_m", "session_items: uom → uo_m"},
+
 		// ── Store location code ───────────────────────────────────────────────
 		{"ALTER TABLE IF EXISTS stores ADD COLUMN IF NOT EXISTS location_code TEXT", "stores: add location_code"},
 

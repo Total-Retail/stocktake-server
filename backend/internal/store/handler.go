@@ -219,17 +219,21 @@ func (h *Handler) GetBinLabel(c *gin.Context) {
 }
 
 func buildLabelSheet(bins []Bin) string {
-	const cols = 4
+	const cols = 6
 	const labelW, labelH = 160, 90
-	const margin = 10
+	const margin = 8
 	const pageW = cols*labelW + (cols+1)*margin
 
 	rows := (len(bins) + cols - 1) / cols
 	pageH := rows*labelH + (rows+1)*margin
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf(`<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d">`, pageW, pageH))
-	sb.WriteString(`<style>text{font-family:monospace;font-size:11px;}</style>`)
+	sb.WriteString(fmt.Sprintf(
+		`<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" viewBox="0 0 %d %d">`,
+		pageW, pageH, pageW, pageH))
+	sb.WriteString(`<style>text{font-family:monospace;font-size:11px;}` +
+		`@media print{svg{width:100%%;height:auto;}}</style>`)
+	sb.WriteString(fmt.Sprintf(`<rect width="%d" height="%d" fill="#f9f9f9"/>`, pageW, pageH))
 
 	for i, bin := range bins {
 		col := i % cols

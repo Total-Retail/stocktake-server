@@ -63,16 +63,21 @@ export default function StoreLayoutPage() {
     } finally { setSaving(null) }
   }
 
-  async function downloadLabel(url: string, filename: string) {
+  async function downloadLabel(url: string, filename: string, openInTab = false) {
     const token = localStorage.getItem('st_token')
     const res = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
     if (!res.ok) { setError('Failed to download label'); return }
     const blob = await res.blob()
-    const a = document.createElement('a')
-    a.href = URL.createObjectURL(blob)
-    a.download = filename
-    a.click()
-    URL.revokeObjectURL(a.href)
+    const objectUrl = URL.createObjectURL(blob)
+    if (openInTab) {
+      window.open(objectUrl, '_blank')
+    } else {
+      const a = document.createElement('a')
+      a.href = objectUrl
+      a.download = filename
+      a.click()
+    }
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 10000)
   }
 
   if (loading) return <div className="flex justify-center items-center h-64"><Spinner size="lg" /></div>
@@ -96,8 +101,8 @@ export default function StoreLayoutPage() {
         </div>
         <div className="flex items-center gap-2">
           <Button variant="secondary" size="sm"
-            onClick={() => downloadLabel(`/api/v1/stores/${id}/labels`, `labels-${id}.svg`)}>
-            Download all labels
+            onClick={() => downloadLabel(`/api/v1/stores/${id}/labels`, `labels-${id}.svg`, true)}>
+            Print all labels
           </Button>
           <Link href={`/stores/${id}/edit`}>
             <Button variant="secondary" size="sm">Edit store</Button>
@@ -240,7 +245,7 @@ export default function StoreLayoutPage() {
                     <td className="px-4 py-2.5 text-gray-900">{bin.bin_name}</td>
                     <td className="px-4 py-2.5 font-mono text-xs text-gray-400">{bin.barcode}</td>
                     <td className="px-4 py-2.5">
-                      <button onClick={() => downloadLabel(`/api/v1/stores/${id}/bins/${bin.id}/label`, `label-${bin.bin_code}.svg`)}
+                      <button onClick={() => downloadLabel(`/api/v1/stores/${id}/bins/${bin.id}/label`, `label-${bin.bin_code}.svg`, true)}
                         className="text-teal-600 hover:text-teal-700 text-xs font-medium">Label</button>
                     </td>
                   </tr>

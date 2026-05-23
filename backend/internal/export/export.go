@@ -48,7 +48,7 @@ func GenerateSessionExport(ctx context.Context, db *gorm.DB, sessionID, storeNam
 		SELECT
 			si.item_no,
 			si.description,
-			si.uom,
+			si.uo_m,
 			COALESCE(cl.total_qty, 0) AS counted_qty,
 			COALESCE(ts.theoretical_qty, 0) AS theoretical_qty,
 			si.unit_cost

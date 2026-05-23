@@ -102,5 +102,5 @@ func (h *Handler) VerifyOTP(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to issue token"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"token": token, "counter_id": counter.ID})
+	c.JSON(http.StatusOK, gin.H{"token": token, "counter_id": counter.ID, "counter_name": counter.Name})
 }

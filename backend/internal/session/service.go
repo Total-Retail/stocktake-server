@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"fmt"
+	"log"
 	"strconv"
 
 	"github.com/totalretail/stocktake/internal/auth"
@@ -407,6 +408,7 @@ func (s *service) GetCounterSessionViews(ctx context.Context, counterID string) 
 	for _, sess := range sessions {
 		view, err := s.buildSessionView(ctx, sess, counterID)
 		if err != nil {
+			log.Printf("WARN [GetCounterSessionViews] skipping session %s: %v", sess.ID, err)
 			continue
 		}
 		views = append(views, *view)

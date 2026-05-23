@@ -133,6 +133,8 @@ jobs:
           cd /home/stocktake/app
           echo "→ Pulling latest images..."
           docker compose pull --ignore-pull-failures
+          echo "→ Removing any stopped proxy container to free ports..."
+          docker compose rm -f -s stocktake-proxy 2>/dev/null || true
           echo "→ Building and starting services..."
           docker compose up --build -d --remove-orphans
           echo "→ Waiting for API to become healthy..."

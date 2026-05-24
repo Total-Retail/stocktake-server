@@ -254,6 +254,81 @@ func buildSingleLabel(bin Bin) string {
 		w, h, buildLabelSVGFragment(bin, 0, 0, w, h))
 }
 
+// code39Patterns maps each Code 39 character to a 9-element wide/narrow pattern.
+// Each character in the string corresponds to one element (alternating bar/space
+// starting with a bar): '1' = wide, '0' = narrow.
+var code39Patterns = map[byte]string{
+	'0': "000110100", '1': "100100001", '2': "001100001", '3': "101100000",
+	'4': "000110001", '5': "100110000", '6': "001110000", '7': "000100101",
+	'8': "100100100", '9': "001100100",
+	'A': "100001001", 'B': "001001001", 'C': "101001000", 'D': "000011001",
+	'E': "100011000", 'F': "001011000", 'G': "000001101", 'H': "100001100",
+	'I': "001001100", 'J': "000011100", 'K': "100000011", 'L': "001000011",
+	'M': "101000010", 'N': "000010011", 'O': "100010010", 'P': "001010010",
+	'Q': "000000111", 'R': "100000110", 'S': "001000110", 'T': "000010110",
+	'U': "110000001", 'V': "011000001", 'W': "111000000", 'X': "010010001",
+	'Y': "110010000", 'Z': "011010000",
+	'-': "010000101", '.': "110000100", ' ': "011000100",
+	'$': "010101000", '/': "010100010", '+': "010001010", '%': "000101010",
+	'*': "010010100",
+}
+
+// buildCode39 renders a Code 39 barcode as SVG <rect> elements scaled to fit width w.
+func buildCode39(text string, x, y, w, barcodeH int) string {
+	text = strings.ToUpper(text)
+	full := "*" + text + "*"
+
+	const narrow, wide, gap = 1, 3, 1
+
+	// collect only encodable characters
+	valid := make([]byte, 0, len(full))
+	for i := 0; i < len(full); i++ {
+		if _, ok := code39Patterns[full[i]]; ok {
+			valid = append(valid, full[i])
+		}
+	}
+	// measure total logical units
+	totalUnits := 0
+	for i, ch := range valid {
+		for _, b := range code39Patterns[ch] {
+			if b == '1' {
+				totalUnits += wide
+			} else {
+				totalUnits += narrow
+			}
+		}
+		if i < len(valid)-1 {
+			totalUnits += gap // inter-character gap
+		}
+	}
+	if totalUnits == 0 {
+		return ""
+	}
+	scale := float64(w) / float64(totalUnits)
+
+	var sb strings.Builder
+	cx := float64(x)
+	for i, ch := range valid {
+		for j, elem := range code39Patterns[ch] {
+			units := narrow
+			if elem == '1' {
+				units = wide
+			}
+			ew := float64(units) * scale
+			if j%2 == 0 { // even indices are bars; odd are spaces (no rect drawn)
+				sb.WriteString(fmt.Sprintf(
+					`<rect x="%.2f" y="%d" width="%.2f" height="%d" fill="#000"/>`,
+					cx, y, ew, barcodeH))
+			}
+			cx += ew
+		}
+		if i < len(valid)-1 {
+			cx += float64(gap) * scale
+		}
+	}
+	return sb.String()
+}
+
 func buildLabelSVGFragment(bin Bin, x, y, w, h int) string {
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf(`<rect x="%d" y="%d" width="%d" height="%d" fill="white" stroke="#333" stroke-width="1"/>`, x, y, w, h))
@@ -261,19 +336,8 @@ func buildLabelSVGFragment(bin Bin, x, y, w, h int) string {
 		x+w/2, y+20, html.EscapeString(bin.BinCode)))
 	sb.WriteString(fmt.Sprintf(`<text x="%d" y="%d" text-anchor="middle" font-size="10" fill="#666">%s</text>`,
 		x+w/2, y+35, html.EscapeString(bin.BinName)))
-	barX := x + 10
-	for i := 0; i < 40; i++ {
-		barW := 1
-		if i%3 == 0 {
-			barW = 2
-		}
-		fill := "#000"
-		if i%5 == 0 {
-			fill = "#fff"
-		}
-		sb.WriteString(fmt.Sprintf(`<rect x="%d" y="%d" width="%d" height="25" fill="%s"/>`, barX, y+42, barW, fill))
-		barX += barW + 1
-	}
+	barcodeH := h - 52
+	sb.WriteString(buildCode39(bin.Barcode, x+2, y+42, w-4, barcodeH))
 	sb.WriteString(fmt.Sprintf(`<text x="%d" y="%d" text-anchor="middle" font-size="8">%s</text>`,
 		x+w/2, y+h-8, html.EscapeString(bin.Barcode)))
 	return sb.String()

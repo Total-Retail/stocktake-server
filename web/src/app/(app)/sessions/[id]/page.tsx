@@ -212,7 +212,7 @@ async function confirmSubmit(e: React.FormEvent) {
     setError('')
     setSuccess('')
     try {
-      const counter = await sessionsApi.addCounter(id, newCounter.name, newCounter.mobile)
+      const counter = await sessionsApi.addCounter(id, newCounter.name, '+263' + newCounter.mobile.replace(/^\+?263/, ''))
       setCounters(prev => [...prev, counter])
       setNewCounter({ name: '', mobile: '' })
       setSuccess(`${newCounter.name} added.`)
@@ -462,12 +462,19 @@ async function confirmSubmit(e: React.FormEvent) {
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-500 mb-1">Mobile</label>
-                <input
-                  value={newCounter.mobile}
-                  onChange={e => setNewCounter(p => ({ ...p, mobile: e.target.value }))}
-                  required
-                  className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
-                />
+                <div className="flex items-center border border-gray-300 rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-teal-500">
+                  <span className="px-3 py-2 bg-gray-100 text-sm text-gray-600 font-medium select-none border-r border-gray-300">+263</span>
+                  <input
+                    value={newCounter.mobile}
+                    onChange={e => setNewCounter(p => ({ ...p, mobile: e.target.value.replace(/\D/g, '').slice(0, 9) }))}
+                    required
+                    placeholder="7XXXXXXXX"
+                    maxLength={9}
+                    pattern="\d{9}"
+                    title="Enter 9-digit local number e.g. 771234567"
+                    className="px-3 py-2 text-sm w-32 focus:outline-none"
+                  />
+                </div>
               </div>
               <Button type="submit" size="sm" loading={addLoading}>Add</Button>
             </form>

@@ -36,6 +36,7 @@ func (s *service) GetConsolidated(ctx context.Context, sessionID string) ([]Cons
 	err := s.db.WithContext(ctx).Raw(`
 		SELECT
 			si.item_no,
+			si.barcode,
 			si.description,
 			COALESCE(SUM(cl.quantity), 0)                                              AS counted_qty,
 			COALESCE(ts.theoretical_qty, 0)                                            AS theoretical_qty,
@@ -61,7 +62,7 @@ func (s *service) GetConsolidated(ctx context.Context, sessionID string) ([]Cons
 		LEFT JOIN theoretical_stocks ts
 			ON ts.session_id = si.session_id AND ts.item_no = si.item_no
 		WHERE si.session_id = ?
-		GROUP BY si.item_no, si.description, si.unit_cost, ts.theoretical_qty
+		GROUP BY si.item_no, si.barcode, si.description, si.unit_cost, ts.theoretical_qty
 		ORDER BY si.item_no`, sessionID, sessionID).Scan(&lines).Error
 	return lines, err
 }

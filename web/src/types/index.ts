@@ -96,6 +96,7 @@ export type FlagStatus = 'PENDING' | 'ACCEPTED' | 'REJECTED'
 
 export interface ConsolidatedLine {
   item_no: string
+  barcode: string
   description: string
   counted_qty: number
   theoretical_qty: number

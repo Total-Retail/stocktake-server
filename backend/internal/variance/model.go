@@ -30,6 +30,7 @@ type RecountDecision struct {
 
 type ConsolidatedLine struct {
 	ItemNo         string  `json:"item_no"`
+	Barcode        string  `json:"barcode"`
 	Description    string  `json:"description"`
 	CountedQty     float64 `json:"counted_qty"`
 	TheoreticalQty float64 `json:"theoretical_qty"`

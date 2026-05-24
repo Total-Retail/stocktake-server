@@ -50,11 +50,14 @@ export default function ConsolidatedPage() {
   function handleExport() {
     const rows = filtered.map(l => ({
       'Item No.': l.item_no,
+      'Barcode': l.barcode,
       'Description': l.description,
       'Counted Qty': l.counted_qty,
       'Theoretical Qty': l.theoretical_qty,
       'Variance': l.variance,
       'Variance %': l.variance_pct,
+      'Unit Cost': l.unit_cost,
+      'Variance Cost': l.variance_cost,
       'Flagged': l.flagged ? 'Yes' : 'No',
     }))
     exportToExcel(rows, 'Consolidated', `consolidated-session-${id}`)
@@ -97,7 +100,7 @@ export default function ConsolidatedPage() {
               <thead className="bg-gray-50 border-b border-gray-100">
                 <tr>
                   <th className="px-4 py-3 w-8" />
-                  {['Item no.', 'Description', 'Counted', 'Theoretical', 'Variance', 'Var %', 'Status'].map(h => (
+                  {['Item no.', 'Barcode', 'Description', 'Counted', 'Theoretical', 'Variance', 'Var %', 'Cost Variance', 'Status'].map(h => (
                     <th key={h} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">{h}</th>
                   ))}
                 </tr>
@@ -115,6 +118,7 @@ export default function ConsolidatedPage() {
                       />
                     </td>
                     <td className="px-4 py-3 font-mono text-xs text-gray-600">{line.item_no}</td>
+                    <td className="px-4 py-3 font-mono text-xs text-gray-500">{line.barcode}</td>
                     <td className="px-4 py-3 text-gray-900">{line.description}</td>
                     <td className="px-4 py-3 font-semibold text-teal-700">{line.counted_qty}</td>
                     <td className="px-4 py-3 text-gray-600">{line.theoretical_qty}</td>
@@ -124,6 +128,10 @@ export default function ConsolidatedPage() {
                     <td className={clsx('px-4 py-3 font-medium text-sm',
                       Math.abs(line.variance_pct) > 10 ? 'text-red-600' : Math.abs(line.variance_pct) > 0 ? 'text-yellow-600' : 'text-gray-400')}>
                       {line.variance_pct > 0 ? '+' : ''}{line.variance_pct?.toFixed(1)}%
+                    </td>
+                    <td className={clsx('px-4 py-3 font-medium text-sm',
+                      line.variance_cost < 0 ? 'text-red-600' : line.variance_cost > 0 ? 'text-yellow-600' : 'text-gray-400')}>
+                      {line.variance_cost > 0 ? '+' : ''}{line.variance_cost?.toFixed(2)}
                     </td>
                     <td className="px-4 py-3">
                       {line.flagged

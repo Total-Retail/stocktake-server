@@ -38,6 +38,7 @@ export default function NewStorePage() {
       ls_store_code: picked.code,
       store_name:    picked.name,
       store_code:    picked.code.replace(/\s+/g, '').toUpperCase(),
+      location_code: picked.code,   // pre-fill; user can override if LS location differs
     }))
   }
 
@@ -51,7 +52,9 @@ export default function NewStorePage() {
     setError('')
     try {
       const store = await stores.create(form)
-      router.push(`/stores/${store.id}`)
+      // Use a hard navigation so the stores list re-fetches fresh data rather
+      // than serving Next.js's cached empty-state version.
+      window.location.href = `/stores/${store.id}`
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to create store')
     } finally {

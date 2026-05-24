@@ -51,6 +51,7 @@ export default function StoreEditPage() {
       ls_store_code: picked.code,
       store_name:    picked.name,
       store_code:    picked.code.replace(/\s+/g, '').toUpperCase(),
+      location_code: picked.code,   // pre-fill; user can override if LS location differs
     }))
   }
 
@@ -64,7 +65,7 @@ export default function StoreEditPage() {
     setError('')
     try {
       await stores.update(id, form)
-      router.push('/stores')
+      window.location.href = '/stores'
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to update store')
     } finally {

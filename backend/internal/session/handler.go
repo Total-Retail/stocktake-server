@@ -325,12 +325,6 @@ func (h *Handler) GetSessionItemByBarcode(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, item)
-}(c.Request.Context(), c.Param("id"), c.Param("barcode"))
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "item not found in session"})
-		return
-	}
-	c.JSON(http.StatusOK, item)
 }
 
 // requireMutableSession fetches the session and returns 409 if it is POSTED or

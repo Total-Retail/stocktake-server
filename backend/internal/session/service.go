@@ -126,7 +126,8 @@ func (s *service) CreateSession(ctx context.Context, sess Session) (*Session, er
 	// Auto-pull theoreticals if a worksheet was linked at creation.
 	// Run in a goroutine with a background context so the HTTP response returns
 	// immediately and the pull isn't cancelled when the request context ends.
-	// GetRetailItems fetches the full catalogue and can take > 60 s on large stores.
+	// GetRetailItems now fetches only worksheet items, but the pull still runs in the background
+	// to avoid blocking the HTTP response.
 	if seqNo := worksheetSeqNoFromSession(&sess); seqNo > 0 {
 		sessID := sess.ID
 		go func() {
@@ -281,9 +282,16 @@ func (s *service) pullTheoreticalBySeqNo(ctx context.Context, sessionID string, 
 	}
 	log.Printf("INFO [pullTheoretical] session=%s — got %d worksheet lines", sessionID, len(lines))
 
+	// Build the item number slice once — reused by both downstream LS calls so
+	// they fetch only the items on this worksheet instead of the full catalogue.
+	itemNos := make([]string, len(lines))
+	for i, l := range lines {
+		itemNos[i] = l.ItemNo
+	}
+
 	// 2. Retail Item card — provides EAN barcodes (ProductExt_DefaultBarcode_Rec)
 	//    and a global average unit cost. Fall back gracefully if unavailable.
-	retailItems, riErr := s.lsClient.GetRetailItems(ctx)
+	retailItems, riErr := s.lsClient.GetRetailItems(ctx, itemNos)
 	if riErr != nil {
 		log.Printf("WARN [pullTheoretical] session=%s — retail items unavailable: %v — using worksheet barcodes/costs", sessionID, riErr)
 	} else {
@@ -303,7 +311,7 @@ func (s *service) pullTheoreticalBySeqNo(ctx context.Context, sessionID string, 
 		Raw("SELECT location_code FROM stores WHERE id = (SELECT store_id FROM stock_count_sessions WHERE id = ?)", sessionID).
 		Scan(&st).Error; err == nil && st.LocationCode != "" {
 		log.Printf("INFO [pullTheoretical] session=%s — fetching SKU costs for location=%s", sessionID, st.LocationCode)
-		skus, skuErr := s.lsClient.GetSKUCosts(ctx, st.LocationCode)
+		skus, skuErr := s.lsClient.GetSKUCosts(ctx, st.LocationCode, itemNos)
 		if skuErr != nil {
 			log.Printf("WARN [pullTheoretical] session=%s — SKU costs unavailable for location %s: %v — using global costs", sessionID, st.LocationCode, skuErr)
 		} else {

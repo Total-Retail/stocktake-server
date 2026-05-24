@@ -437,9 +437,24 @@ func (c *Client) ClearWorksheetLines(ctx context.Context, worksheetSeqNo int) er
 // GetRetailItems fetches all retail items from LS using the RetailItem card.
 // It returns the EAN barcode (ProductExt_DefaultBarcode_Rec) and the global average
 // unit cost. Use GetSKUCosts to override with location-specific costs.
-func (c *Client) GetRetailItems(ctx context.Context) ([]RetailItemLine, error) {
-	endpoint := fmt.Sprintf("%s?$format=json&$select=No,Description,ProductExt_DefaultBarcode_Rec,Base_Unit_of_Measure,Unit_Cost",
-		c.oDataURL("RetailItem"))
+// GetRetailItems fetches retail item data for a specific set of item numbers.
+// It builds an OData $filter with OR conditions so only the items on the
+// worksheet are fetched — not the entire catalogue (which can be thousands of
+// records and cause request timeouts).
+func (c *Client) GetRetailItems(ctx context.Context, itemNos []string) ([]RetailItemLine, error) {
+	if len(itemNos) == 0 {
+		return nil, nil
+	}
+
+	// Build: No eq '2996' or No eq '4096' or ...
+	parts := make([]string, len(itemNos))
+	for i, no := range itemNos {
+		parts[i] = fmt.Sprintf("No eq '%s'", strings.ReplaceAll(no, "'", "''"))
+	}
+	filter := url.QueryEscape(strings.Join(parts, " or "))
+
+	endpoint := fmt.Sprintf("%s?$filter=%s&$format=json&$select=No,Description,ProductExt_DefaultBarcode_Rec,Base_Unit_of_Measure,Unit_Cost",
+		c.oDataURL("RetailItem"), filter)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
@@ -470,9 +485,17 @@ func (c *Client) GetRetailItems(ctx context.Context) ([]RetailItemLine, error) {
 }
 
 // GetSKUCosts fetches per-location unit costs from StockkeepingUnit for the given
-// LS location code (e.g. "1015"). Returns a slice of SKULine keyed by item number.
-func (c *Client) GetSKUCosts(ctx context.Context, locationCode string) ([]SKULine, error) {
-	filter := url.QueryEscape(fmt.Sprintf("Location_Code eq '%s'", locationCode))
+// LS location code and specific item numbers (only items on the worksheet).
+func (c *Client) GetSKUCosts(ctx context.Context, locationCode string, itemNos []string) ([]SKULine, error) {
+	baseFilter := fmt.Sprintf("Location_Code eq '%s'", locationCode)
+	if len(itemNos) > 0 {
+		itemParts := make([]string, len(itemNos))
+		for i, no := range itemNos {
+			itemParts[i] = fmt.Sprintf("Item_No eq '%s'", strings.ReplaceAll(no, "'", "''"))
+		}
+		baseFilter = fmt.Sprintf("(%s) and (%s)", baseFilter, strings.Join(itemParts, " or "))
+	}
+	filter := url.QueryEscape(baseFilter)
 	endpoint := fmt.Sprintf("%s?$filter=%s&$format=json&$select=Item_No,Unit_Cost",
 		c.oDataURL("StockkeepingUnit"), filter)
 

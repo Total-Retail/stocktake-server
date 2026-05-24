@@ -88,14 +88,21 @@ func (s *service) CreateAisle(ctx context.Context, a Aisle) (*Aisle, error) {
 
 func (s *service) CreateBin(ctx context.Context, b Bin) (*Bin, error) {
 	if b.Barcode == "" {
-		b.Barcode = fmt.Sprintf("BIN-%s", uuid.New().String()[:8])
+		if b.BinCode != "" {
+			b.Barcode = b.BinCode
+		} else {
+			b.Barcode = fmt.Sprintf("BIN-%s", uuid.New().String()[:8])
+		}
 	}
 	err := s.db.WithContext(ctx).Create(&b).Error
 	return &b, err
 }
 
 func (s *service) BulkImportLayout(ctx context.Context, storeID string, importRows []LayoutImportRow) error {
-	// Fetch the store code once so barcodes are globally unique across stores.
+	// Fetch store code once — used as a prefix so barcodes are globally unique
+	// across stores that share the same layout template.
+	// The prefix is NOT printed on labels; the mobile strips it before encoding
+	// and looks bins up by bin code within the active session's scope.
 	var st Store
 	if err := s.db.WithContext(ctx).Select("store_code").First(&st, "id = ?", storeID).Error; err != nil {
 		return fmt.Errorf("fetch store: %w", err)
@@ -130,10 +137,10 @@ func (s *service) BulkImportLayout(ctx context.Context, storeID string, importRo
 				aisleMap[aisleKey] = a.ID
 			}
 
-			// Include store prefix so barcodes are unique even when multiple stores
-			// share the same layout template (same aisle/bin codes).
-			barcode := fmt.Sprintf("%s-%s-%s", storePrefix, row.AisleCode, row.BinCode)
-			b := Bin{AisleID: aisleMap[aisleKey], BinCode: row.BinCode, BinName: row.BinName, Barcode: barcode}
+			// Barcode = "{storeCode}-{binCode}" — store prefix ensures DB uniqueness;
+			// label SVG encodes only the bin-code portion (after the first dash).
+			b := Bin{AisleID: aisleMap[aisleKey], BinCode: row.BinCode, BinName: row.BinName,
+				Barcode: fmt.Sprintf("%s-%s", storePrefix, row.BinCode)}
 			if err := tx.Clauses(clause.OnConflict{
 				Columns:   []clause.Column{{Name: "aisle_id"}, {Name: "bin_code"}},
 				DoUpdates: clause.AssignmentColumns([]string{"bin_name", "barcode"}),

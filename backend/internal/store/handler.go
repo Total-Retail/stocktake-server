@@ -220,9 +220,11 @@ func (h *Handler) GetBinLabel(c *gin.Context) {
 }
 
 func buildLabelSheet(bins []Bin) string {
-	const cols = 6
-	const labelW, labelH = 160, 90
-	const margin = 8
+	// 4 columns — wider labels ensure narrow bars are at least ~0.25 mm when
+	// printed on A4/Letter paper (browser @media print scales SVG to page width).
+	const cols = 4
+	const labelW, labelH = 300, 120
+	const margin = 12
 	const pageW = cols*labelW + (cols+1)*margin
 
 	rows := (len(bins) + cols - 1) / cols
@@ -232,8 +234,8 @@ func buildLabelSheet(bins []Bin) string {
 	sb.WriteString(fmt.Sprintf(
 		`<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" viewBox="0 0 %d %d">`,
 		pageW, pageH, pageW, pageH))
-	sb.WriteString(`<style>text{font-family:monospace;font-size:11px;}` +
-		`@media print{svg{width:100%;height:auto;}}</style>`)
+	sb.WriteString(`<style>text{font-family:monospace;}` +
+		`@media print{svg{width:100%;height:auto;} @page{size:landscape;}}</style>`)
 	sb.WriteString(fmt.Sprintf(`<rect width="%d" height="%d" fill="#f9f9f9"/>`, pageW, pageH))
 
 	for i, bin := range bins {
@@ -249,7 +251,7 @@ func buildLabelSheet(bins []Bin) string {
 }
 
 func buildSingleLabel(bin Bin) string {
-	const w, h = 200, 120
+	const w, h = 320, 130
 	return fmt.Sprintf(`<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d">%s</svg>`,
 		w, h, buildLabelSVGFragment(bin, 0, 0, w, h))
 }
@@ -330,6 +332,14 @@ func buildCode39(text string, x, y, w, barcodeH int) string {
 }
 
 func buildLabelSVGFragment(bin Bin, x, y, w, h int) string {
+	// Strip the store-code prefix (everything up to and including the first dash)
+	// so only the bin code is encoded in the barcode. The mobile looks the bin up
+	// by bin code within the active session, so the prefix is not needed on the label.
+	encodedBarcode := bin.Barcode
+	if idx := strings.Index(encodedBarcode, "-"); idx != -1 {
+		encodedBarcode = encodedBarcode[idx+1:]
+	}
+
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf(`<rect x="%d" y="%d" width="%d" height="%d" fill="white" stroke="#333" stroke-width="1"/>`, x, y, w, h))
 	sb.WriteString(fmt.Sprintf(`<text x="%d" y="%d" text-anchor="middle" font-size="14" font-weight="bold">%s</text>`,
@@ -337,8 +347,8 @@ func buildLabelSVGFragment(bin Bin, x, y, w, h int) string {
 	sb.WriteString(fmt.Sprintf(`<text x="%d" y="%d" text-anchor="middle" font-size="10" fill="#666">%s</text>`,
 		x+w/2, y+35, html.EscapeString(bin.BinName)))
 	barcodeH := h - 52
-	sb.WriteString(buildCode39(bin.Barcode, x+2, y+42, w-4, barcodeH))
+	sb.WriteString(buildCode39(encodedBarcode, x+10, y+42, w-20, barcodeH))
 	sb.WriteString(fmt.Sprintf(`<text x="%d" y="%d" text-anchor="middle" font-size="8">%s</text>`,
-		x+w/2, y+h-8, html.EscapeString(bin.Barcode)))
+		x+w/2, y+h-8, html.EscapeString(encodedBarcode)))
 	return sb.String()
 }

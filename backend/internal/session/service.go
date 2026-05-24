@@ -247,21 +247,67 @@ func (s *service) PullTheoretical(ctx context.Context, sessionID string) error {
 }
 
 func (s *service) pullTheoreticalBySeqNo(ctx context.Context, sessionID string, worksheetSeqNo int) error {
+	// 1. Worksheet lines — provides the item list and theoretical quantities.
 	lines, err := s.lsClient.GetWorksheetLines(ctx, worksheetSeqNo)
 	if err != nil {
 		return fmt.Errorf("fetch LS worksheet: %w", err)
 	}
 
+	// 2. Retail Item card — provides EAN barcodes (ProductExt_DefaultBarcode_Rec)
+	//    and a global average unit cost. Fall back gracefully if unavailable.
+	retailItems, riErr := s.lsClient.GetRetailItems(ctx)
+	if riErr != nil {
+		log.Printf("WARN [pullTheoretical] retail items unavailable: %v — using worksheet barcodes/costs", riErr)
+	}
+	retailMap := make(map[string]ls.RetailItemLine, len(retailItems))
+	for _, ri := range retailItems {
+		retailMap[ri.ItemNo] = ri
+	}
+
+	// 3. StockkeepingUnit — provides the store-specific (SKU) unit cost.
+	//    Requires the store's LS Location_Code; fall back to global cost if missing.
+	skuCosts := make(map[string]float64)
+	type storeRow struct{ LocationCode string }
+	var st storeRow
+	if err := s.db.WithContext(ctx).
+		Raw("SELECT location_code FROM stores WHERE id = (SELECT store_id FROM stock_count_sessions WHERE id = ?)", sessionID).
+		Scan(&st).Error; err == nil && st.LocationCode != "" {
+		skus, skuErr := s.lsClient.GetSKUCosts(ctx, st.LocationCode)
+		if skuErr != nil {
+			log.Printf("WARN [pullTheoretical] SKU costs unavailable for location %s: %v — using global costs", st.LocationCode, skuErr)
+		} else {
+			for _, sku := range skus {
+				skuCosts[sku.ItemNo] = sku.UnitCost
+			}
+		}
+	}
+
+	// 4. Persist — clear old records and write fresh ones.
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		tx.Where("session_id = ?", sessionID).Delete(&TheoreticalStock{})
 		tx.Where("session_id = ?", sessionID).Delete(&SessionItem{})
 
 		for _, line := range lines {
+			// Barcode: prefer RetailItem EAN barcode; fall back to whatever the worksheet has.
+			barcode := line.Barcode
+			if ri, ok := retailMap[line.ItemNo]; ok && ri.Barcode != "" {
+				barcode = ri.Barcode
+			}
+
+			// Cost priority: SKU (location-specific) > RetailItem global > worksheet line cost.
+			unitCost := line.UnitCost
+			if ri, ok := retailMap[line.ItemNo]; ok && ri.UnitCost > 0 {
+				unitCost = ri.UnitCost
+			}
+			if skuCost, ok := skuCosts[line.ItemNo]; ok && skuCost > 0 {
+				unitCost = skuCost
+			}
+
 			if err := tx.Create(&TheoreticalStock{
 				SessionID:      sessionID,
 				ItemNo:         line.ItemNo,
 				TheoreticalQty: line.TheoreticalQty,
-				UnitCost:       line.UnitCost,
+				UnitCost:       unitCost,
 			}).Error; err != nil {
 				return err
 			}
@@ -269,9 +315,9 @@ func (s *service) pullTheoreticalBySeqNo(ctx context.Context, sessionID string, 
 				SessionID:   sessionID,
 				ItemNo:      line.ItemNo,
 				Description: line.Description,
-				Barcode:     line.Barcode,
+				Barcode:     barcode,
 				UoM:         line.UoM,
-				UnitCost:    line.UnitCost,
+				UnitCost:    unitCost,
 			}).Error; err != nil {
 				return err
 			}

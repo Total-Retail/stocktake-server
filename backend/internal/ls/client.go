@@ -40,6 +40,22 @@ type ItemLine struct {
     UnitCost    float64 `json:"Unit_Cost"`
 }
 
+// RetailItemLine holds barcode and cost data from the LS Retail Item card.
+// ProductExt_DefaultBarcode_Rec is the primary EAN/scan barcode on the retail item.
+type RetailItemLine struct {
+    ItemNo      string  `json:"No"`
+    Description string  `json:"Description"`
+    Barcode     string  `json:"ProductExt_DefaultBarcode_Rec"`
+    UoM         string  `json:"Base_Unit_of_Measure"`
+    UnitCost    float64 `json:"Unit_Cost"`
+}
+
+// SKULine holds the location-specific unit cost from StockkeepingUnit.
+type SKULine struct {
+    ItemNo   string  `json:"Item_No"`
+    UnitCost float64 `json:"Unit_Cost"`
+}
+
 // LSStore represents a store record from LS
 type LSStore struct {
 	Code string `json:"code"`
@@ -416,6 +432,76 @@ func (c *Client) ClearWorksheetLines(ctx context.Context, worksheetSeqNo int) er
 		}
 	}
 	return nil
+}
+
+// GetRetailItems fetches all retail items from LS using the RetailItem card.
+// It returns the EAN barcode (ProductExt_DefaultBarcode_Rec) and the global average
+// unit cost. Use GetSKUCosts to override with location-specific costs.
+func (c *Client) GetRetailItems(ctx context.Context) ([]RetailItemLine, error) {
+	endpoint := fmt.Sprintf("%s?$format=json&$select=No,Description,ProductExt_DefaultBarcode_Rec,Base_Unit_of_Measure,Unit_Cost",
+		c.oDataURL("RetailItem"))
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.SetBasicAuth(c.username, c.password)
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("LS retail items request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body := make([]byte, 512)
+		n, _ := resp.Body.Read(body)
+		return nil, fmt.Errorf("LS returned %d fetching retail items: %s", resp.StatusCode, body[:n])
+	}
+
+	var result struct {
+		Value []RetailItemLine `json:"value"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decode retail items response: %w", err)
+	}
+	return result.Value, nil
+}
+
+// GetSKUCosts fetches per-location unit costs from StockkeepingUnit for the given
+// LS location code (e.g. "1015"). Returns a slice of SKULine keyed by item number.
+func (c *Client) GetSKUCosts(ctx context.Context, locationCode string) ([]SKULine, error) {
+	filter := url.QueryEscape(fmt.Sprintf("Location_Code eq '%s'", locationCode))
+	endpoint := fmt.Sprintf("%s?$filter=%s&$format=json&$select=Item_No,Unit_Cost",
+		c.oDataURL("StockkeepingUnit"), filter)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.SetBasicAuth(c.username, c.password)
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("LS SKU costs request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body := make([]byte, 512)
+		n, _ := resp.Body.Read(body)
+		return nil, fmt.Errorf("LS returned %d fetching SKU costs for location %s: %s", resp.StatusCode, locationCode, body[:n])
+	}
+
+	var result struct {
+		Value []SKULine `json:"value"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decode SKU costs response: %w", err)
+	}
+	return result.Value, nil
 }
 
 // GetItems fetches the item master from LS

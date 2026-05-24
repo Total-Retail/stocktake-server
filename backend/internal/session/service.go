@@ -50,6 +50,7 @@ type Service interface {
 	ReopenSession(ctx context.Context, id string) error
 	AddCounter(ctx context.Context, sessionID, counterID string) error
 	RemoveCounter(ctx context.Context, sessionID, counterID string) error
+	ValidatePullReady(ctx context.Context, sessionID string) error
 	PullTheoretical(ctx context.Context, sessionID string) error
 	SubmitToLS(ctx context.Context, sessionID, exportDir string) (exportPath string, err error)
 	UpsertCounter(ctx context.Context, name, mobile string) (*auth.Counter, error)
@@ -241,6 +242,20 @@ func (s *service) GetAvailableWorksheets(ctx context.Context) ([]ls.AvailableWor
 
 func (s *service) GetLSStores(ctx context.Context) ([]ls.LSStore, error) {
 	return s.lsClient.GetLSStores(ctx)
+}
+
+// ValidatePullReady checks that the session exists and has a worksheet linked.
+// Call this synchronously before firing a background pull so the caller gets
+// a proper error response immediately.
+func (s *service) ValidatePullReady(ctx context.Context, sessionID string) error {
+	sess, err := s.GetSession(ctx, sessionID)
+	if err != nil {
+		return fmt.Errorf("session not found: %w", err)
+	}
+	if worksheetSeqNoFromSession(sess) == 0 {
+		return fmt.Errorf("no worksheet linked to this session — set a worksheet first")
+	}
+	return nil
 }
 
 func (s *service) PullTheoretical(ctx context.Context, sessionID string) error {

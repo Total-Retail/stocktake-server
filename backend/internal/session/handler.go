@@ -1,10 +1,12 @@
 package session
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/totalretail/stocktake/internal/auth"
@@ -245,11 +247,27 @@ func (h *Handler) ResendOTP(c *gin.Context) {
 }
 
 func (h *Handler) PullTheoretical(c *gin.Context) {
-	if err := h.svc.PullTheoretical(c.Request.Context(), c.Param("id")); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	sessionID := c.Param("id")
+
+	// Validate the session and worksheet synchronously so we can return a
+	// meaningful error before detaching from the request context.
+	if err := h.svc.ValidatePullReady(c.Request.Context(), sessionID); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "theoretical stock pulled"})
+
+	// Return 202 immediately — the retail-item catalogue fetch can take > 60 s
+	// on large stores and would exceed the browser/proxy request timeout.
+	c.JSON(http.StatusAccepted, gin.H{"message": "theoretical pull started — items will be ready shortly"})
+
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		if err := h.svc.PullTheoretical(ctx, sessionID); err != nil {
+			// Logged server-side; frontend will see updated data on next load
+			_ = err
+		}
+	}()
 }
 
 func (h *Handler) SubmitToLS(c *gin.Context) {

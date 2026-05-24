@@ -92,9 +92,9 @@ async function handleAction(action: string) {
       setActionLoading(false)
       return
     } else if (action === 'complete_and_pull') {
-      await sessionsApi.pullTheoretical(id)
+      await sessionsApi.pullTheoretical(id) // returns 202 — pull runs in background
       await sessionsApi.updateStatus(id, 'PENDING_REVIEW')
-      setSuccess('Counting complete. Session is now in Pending Review.')
+      setSuccess('Counting complete. Theoretical stock is syncing in the background — reload in a moment to see updated items.')
     } else {
       await sessionsApi.updateStatus(id, action)
       setSuccess('Session status updated.')
@@ -197,8 +197,8 @@ async function confirmSubmit(e: React.FormEvent) {
     setError('')
     setSuccess('')
     try {
-      await sessionsApi.pullTheoretical(id)
-      setSuccess('Theoretical stock re-synced from LS.')
+      await sessionsApi.pullTheoretical(id) // 202 — pull runs in background on server
+      setSuccess('Sync started. Item barcodes and costs are being fetched from LS — reload in about 30 seconds to see the updated items.')
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Re-sync failed')
     } finally {

@@ -271,17 +271,23 @@ func (s *service) PullTheoretical(ctx context.Context, sessionID string) error {
 }
 
 func (s *service) pullTheoreticalBySeqNo(ctx context.Context, sessionID string, worksheetSeqNo int) error {
+	log.Printf("INFO [pullTheoretical] session=%s worksheet=%d — starting", sessionID, worksheetSeqNo)
+
 	// 1. Worksheet lines — provides the item list and theoretical quantities.
 	lines, err := s.lsClient.GetWorksheetLines(ctx, worksheetSeqNo)
 	if err != nil {
+		log.Printf("ERROR [pullTheoretical] session=%s — worksheet fetch failed: %v", sessionID, err)
 		return fmt.Errorf("fetch LS worksheet: %w", err)
 	}
+	log.Printf("INFO [pullTheoretical] session=%s — got %d worksheet lines", sessionID, len(lines))
 
 	// 2. Retail Item card — provides EAN barcodes (ProductExt_DefaultBarcode_Rec)
 	//    and a global average unit cost. Fall back gracefully if unavailable.
 	retailItems, riErr := s.lsClient.GetRetailItems(ctx)
 	if riErr != nil {
-		log.Printf("WARN [pullTheoretical] retail items unavailable: %v — using worksheet barcodes/costs", riErr)
+		log.Printf("WARN [pullTheoretical] session=%s — retail items unavailable: %v — using worksheet barcodes/costs", sessionID, riErr)
+	} else {
+		log.Printf("INFO [pullTheoretical] session=%s — got %d retail items", sessionID, len(retailItems))
 	}
 	retailMap := make(map[string]ls.RetailItemLine, len(retailItems))
 	for _, ri := range retailItems {
@@ -296,18 +302,22 @@ func (s *service) pullTheoreticalBySeqNo(ctx context.Context, sessionID string, 
 	if err := s.db.WithContext(ctx).
 		Raw("SELECT location_code FROM stores WHERE id = (SELECT store_id FROM stock_count_sessions WHERE id = ?)", sessionID).
 		Scan(&st).Error; err == nil && st.LocationCode != "" {
+		log.Printf("INFO [pullTheoretical] session=%s — fetching SKU costs for location=%s", sessionID, st.LocationCode)
 		skus, skuErr := s.lsClient.GetSKUCosts(ctx, st.LocationCode)
 		if skuErr != nil {
-			log.Printf("WARN [pullTheoretical] SKU costs unavailable for location %s: %v — using global costs", st.LocationCode, skuErr)
+			log.Printf("WARN [pullTheoretical] session=%s — SKU costs unavailable for location %s: %v — using global costs", sessionID, st.LocationCode, skuErr)
 		} else {
 			for _, sku := range skus {
 				skuCosts[sku.ItemNo] = sku.UnitCost
 			}
+			log.Printf("INFO [pullTheoretical] session=%s — got %d SKU cost records for location=%s", sessionID, len(skuCosts), st.LocationCode)
 		}
+	} else {
+		log.Printf("WARN [pullTheoretical] session=%s — no location_code on store, skipping SKU costs (err=%v locationCode=%q)", sessionID, err, st.LocationCode)
 	}
 
 	// 4. Persist — clear old records and write fresh ones.
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	txErr := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		tx.Where("session_id = ?", sessionID).Delete(&TheoreticalStock{})
 		tx.Where("session_id = ?", sessionID).Delete(&SessionItem{})
 
@@ -348,6 +358,12 @@ func (s *service) pullTheoreticalBySeqNo(ctx context.Context, sessionID string, 
 		}
 		return nil
 	})
+	if txErr != nil {
+		log.Printf("ERROR [pullTheoretical] session=%s — transaction failed: %v", sessionID, txErr)
+	} else {
+		log.Printf("INFO [pullTheoretical] session=%s — completed OK, saved %d items", sessionID, len(lines))
+	}
+	return txErr
 }
 
 func (s *service) SubmitToLS(ctx context.Context, sessionID, exportDir string) (string, error) {

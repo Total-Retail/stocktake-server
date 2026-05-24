@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -261,11 +262,11 @@ func (h *Handler) PullTheoretical(c *gin.Context) {
 	c.JSON(http.StatusAccepted, gin.H{"message": "theoretical pull started — items will be ready shortly"})
 
 	go func() {
+		log.Printf("INFO [PullTheoretical] goroutine started for session=%s", sessionID)
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
 		if err := h.svc.PullTheoretical(ctx, sessionID); err != nil {
-			// Logged server-side; frontend will see updated data on next load
-			_ = err
+			log.Printf("ERROR [PullTheoretical] goroutine failed for session=%s: %v", sessionID, err)
 		}
 	}()
 }

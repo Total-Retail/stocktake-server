@@ -20,6 +20,7 @@ export default function StoreEditPage() {
     location_code: '',
   })
   const [loading, setLoading] = useState(false)
+  const [success, setSuccess] = useState('')
   const [error, setError]     = useState('')
 
   useEffect(() => {
@@ -65,10 +66,10 @@ export default function StoreEditPage() {
     setError('')
     try {
       await stores.update(id, form)
-      window.location.href = '/stores'
+      setSuccess('Store updated. Redirecting…')
+      setTimeout(() => { window.location.href = '/stores' }, 1200)
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to update store')
-    } finally {
       setLoading(false)
     }
   }
@@ -170,10 +171,11 @@ export default function StoreEditPage() {
               <p className="text-xs text-gray-400 mt-1">LS location code if applicable</p>
             </div>
 
-            {error && <p className="text-sm text-red-600">{error}</p>}
+            {success && <p className="text-sm text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2">{success}</p>}
+            {error   && <p className="text-sm text-red-600   bg-red-50   border border-red-200   rounded-lg px-3 py-2">{error}</p>}
 
             <div className="flex gap-3 pt-2">
-              <Button type="submit" loading={loading}>Save changes</Button>
+              <Button type="submit" loading={loading} disabled={!!success}>Save changes</Button>
               <Button type="button" variant="secondary" onClick={() => router.back()}>Cancel</Button>
             </div>
           </form>

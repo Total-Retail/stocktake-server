@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"strconv"
+	"time"
 
 	"github.com/totalretail/stocktake/internal/auth"
 	"github.com/totalretail/stocktake/internal/export"
@@ -121,11 +122,19 @@ func (s *service) CreateSession(ctx context.Context, sess Session) (*Session, er
 		return nil, err
 	}
 
-	// Auto-pull theoreticals if a worksheet was linked at creation
+	// Auto-pull theoreticals if a worksheet was linked at creation.
+	// Run in a goroutine with a background context so the HTTP response returns
+	// immediately and the pull isn't cancelled when the request context ends.
+	// GetRetailItems fetches the full catalogue and can take > 60 s on large stores.
 	if seqNo := worksheetSeqNoFromSession(&sess); seqNo > 0 {
-		if err := s.pullTheoreticalBySeqNo(ctx, sess.ID, seqNo); err != nil {
-			_ = err // Non-fatal — log and continue
-		}
+		sessID := sess.ID
+		go func() {
+			pullCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+			defer cancel()
+			if err := s.pullTheoreticalBySeqNo(pullCtx, sessID, seqNo); err != nil {
+				log.Printf("WARN [CreateSession] background auto-pull failed for session %s: %v", sessID, err)
+			}
+		}()
 	}
 
 	return &sess, nil

@@ -1,10 +1,10 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useParams } from 'next/navigation'
-import { sessions } from '@/lib/api'
+import { sessions, reporting } from '@/lib/api'
 import { useSessionSocket } from '@/lib/useSessionSocket'
-import type { Session, Counter } from '@/types'
+import type { Session, Counter, WSEvent } from '@/types'
 import { Card, CardHeader, CardBody, Badge, StatusBadge, Spinner } from '@/components/ui'
 
 export default function MonitorPage() {
@@ -13,17 +13,68 @@ export default function MonitorPage() {
   const [session, setSession] = useState<Session | null>(null)
   const [counters, setCounters] = useState<Counter[]>([])
 
+  // Per-counter item counts seeded from the reporting API so existing counts
+  // (before the admin opened this page) are visible immediately.
+  const [counterItemCounts, setCounterItemCounts] = useState<Record<string, number>>({})
+
+  // Track which WS events we've already processed so we don't double-count on re-renders.
+  const processedEventCount = useRef(0)
+
+  // Build a name lookup from the counters array so event descriptions can show
+  // human-readable names instead of UUIDs.
+  const counterNamesById = Object.fromEntries(counters.map(c => [c.id, c.name]))
+
   useEffect(() => {
     sessions.get(id).then(setSession)
     sessions.listCounters(id).then(setCounters)
+    // Seed initial item-count stats from the reporting API
+    reporting.getCounterPerformance(id).then(perf => {
+      const initial: Record<string, number> = {}
+      for (const p of (perf ?? [])) initial[p.counter_id] = p.items_counted
+      setCounterItemCounts(initial)
+    })
   }, [id])
 
-  // Derive per-counter stats from WS events
-  const countsByCounter: Record<string, number> = {}
-  for (const e of events) {
-    if (e.type === 'count.submitted') {
-      const cid = (e.payload as { counter_id?: string }).counter_id ?? 'unknown'
-      countsByCounter[cid] = (countsByCounter[cid] ?? 0) + ((e.payload as { count?: number }).count ?? 0)
+  // When new WS events arrive, increment counter stats for 'count.submitted'.
+  useEffect(() => {
+    const newEvents = events.slice(0, events.length - processedEventCount.current)
+    if (newEvents.length === 0) return
+    processedEventCount.current = events.length
+
+    const deltas: Record<string, number> = {}
+    for (const e of newEvents) {
+      if (e.type === 'count.submitted') {
+        const cid   = (e.payload as { counter_id?: string }).counter_id ?? ''
+        const count = (e.payload as { count?: number }).count ?? 0
+        if (cid) deltas[cid] = (deltas[cid] ?? 0) + count
+      }
+    }
+    if (Object.keys(deltas).length > 0) {
+      setCounterItemCounts(prev => {
+        const next = { ...prev }
+        for (const [cid, delta] of Object.entries(deltas)) next[cid] = (next[cid] ?? 0) + delta
+        return next
+      })
+    }
+  }, [events])
+
+  function formatEvent(e: WSEvent): string {
+    const p = e.payload
+    const counterName = (p.counter_id ? counterNamesById[p.counter_id as string] : null)
+      ?? (p.counter_id as string ?? 'Unknown counter')
+    switch (e.type) {
+      case 'count.submitted':
+        return `${counterName} submitted ${p.count ?? '?'} item${(p.count as number) !== 1 ? 's' : ''}`
+      case 'bin.completed':
+        return `${counterName} completed a bin`
+      case 'counter.connected':
+        return `${counterName} connected`
+      case 'counter.disconnected':
+        return `${counterName} disconnected`
+      case 'session.status_changed':
+        return `Session status → ${p.status ?? '?'}`
+      default:
+        return `${e.type}`
     }
   }
 
@@ -56,7 +107,7 @@ export default function MonitorPage() {
                   <tr key={c.id}>
                     <td className="px-4 py-3 font-medium text-gray-900">{c.name}</td>
                     <td className="px-4 py-3 text-gray-600">{c.mobile_number}</td>
-                    <td className="px-4 py-3 text-teal-600 font-semibold">{countsByCounter[c.id] ?? 0}</td>
+                    <td className="px-4 py-3 text-teal-600 font-semibold">{counterItemCounts[c.id] ?? 0}</td>
                   </tr>
                 ))}
               </tbody>
@@ -73,10 +124,10 @@ export default function MonitorPage() {
               <ul className="divide-y divide-gray-50">
                 {events.map((e, i) => (
                   <li key={i} className="px-4 py-2.5 flex items-start gap-3">
-                    <span className="mt-0.5 flex-shrink-0 w-2 h-2 rounded-full bg-teal-400 mt-1.5" />
+                    <span className="flex-shrink-0 w-2 h-2 rounded-full bg-teal-400 mt-1.5" />
                     <div>
-                      <p className="text-xs font-medium text-gray-700">{e.type}</p>
-                      <p className="text-xs text-gray-400 font-mono">{JSON.stringify(e.payload)}</p>
+                      <p className="text-xs font-medium text-gray-700">{formatEvent(e)}</p>
+                      <p className="text-xs text-gray-400">{e.type}</p>
                     </div>
                   </li>
                 ))}

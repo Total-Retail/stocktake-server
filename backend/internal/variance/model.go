@@ -12,8 +12,10 @@ const (
 
 type VarianceFlag struct {
 	ID        string     `json:"id"         gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
-	SessionID string     `json:"session_id" gorm:"type:uuid;not null;index"`
-	ItemNo    string     `json:"item_no"    gorm:"not null"`
+	// uniqueIndex tag ensures AutoMigrate creates UNIQUE(session_id, item_no) so that
+	// the ON CONFLICT upsert in FlagItems() works without needing a manual goose migration.
+	SessionID string     `json:"session_id" gorm:"type:uuid;not null;uniqueIndex:udx_variance_flags_session_item"`
+	ItemNo    string     `json:"item_no"    gorm:"not null;uniqueIndex:udx_variance_flags_session_item"`
 	FlaggedBy string     `json:"flagged_by" gorm:"type:uuid;not null"`
 	FlaggedAt time.Time  `json:"flagged_at" gorm:"autoCreateTime"`
 	Status    FlagStatus `json:"status"     gorm:"type:varchar(20);default:'PENDING'"`

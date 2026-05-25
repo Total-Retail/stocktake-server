@@ -48,6 +48,11 @@ func RunSchemaRenames(db *gorm.DB) error {
 		{"CREATE UNIQUE INDEX IF NOT EXISTS idx_aisles_area_aisle ON aisles(area_id, aisle_code)", "aisles: unique(area_id, aisle_code)"},
 		{"CREATE UNIQUE INDEX IF NOT EXISTS idx_bins_aisle_bin    ON bins(aisle_id, bin_code)", "bins: unique(aisle_id, bin_code)"},
 
+		// variance_flags: the ON CONFLICT upsert in FlagItems() requires this index.
+		// GORM AutoMigrate creates it via the uniqueIndex tag on the model, but this
+		// ensures existing databases (created before the tag was added) also get it.
+		{"CREATE UNIQUE INDEX IF NOT EXISTS udx_variance_flags_session_item ON variance_flags(session_id, item_no)", "variance_flags: unique(session_id, item_no)"},
+
 		// ── Drop old partial-unique index (references old status values) ──────
 		{"DROP INDEX IF EXISTS idx_sessions_store_type_active", "drop stale session unique index"},
 	}

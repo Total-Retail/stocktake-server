@@ -68,13 +68,22 @@ func (s *service) SubmitBin(ctx context.Context, sessionID, binID, counterID str
 }
 
 func (s *service) GetRecounts(ctx context.Context, sessionID, counterID string) ([]CountLine, error) {
+	// Return only the most recent count per (item_no, bin_id) for flagged items.
+	// DISTINCT ON ordered by round_no DESC means a round-1 recount supersedes the
+	// original round-0 entry for the same bin — the counter only sees current state.
 	var lines []CountLine
-	err := s.db.WithContext(ctx).
-		Joins("JOIN variance_flags ON variance_flags.session_id = count_lines.session_id AND variance_flags.item_no = count_lines.item_no").
-		Where("count_lines.session_id = ? AND count_lines.counter_id = ? AND variance_flags.status = ?",
-			sessionID, counterID, "PENDING").
-		Order("count_lines.counted_at desc").
-		Find(&lines).Error
+	err := s.db.WithContext(ctx).Raw(`
+		SELECT DISTINCT ON (cl.item_no, cl.bin_id)
+			cl.id, cl.session_id, cl.bin_id, cl.item_no, cl.counter_id,
+			cl.quantity, cl.counted_at, cl.synced_at, cl.round_no, cl.client_uuid
+		FROM count_lines cl
+		JOIN variance_flags vf
+			ON vf.session_id = cl.session_id AND vf.item_no = cl.item_no
+		WHERE cl.session_id  = ?
+		  AND cl.counter_id  = ?
+		  AND vf.status      = 'PENDING'
+		ORDER BY cl.item_no, cl.bin_id, cl.round_no DESC, cl.counted_at DESC`,
+		sessionID, counterID).Scan(&lines).Error
 	return lines, err
 }
 

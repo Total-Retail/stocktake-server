@@ -17,10 +17,13 @@ export default function AuditPage() {
     varianceApi.getAudit(id).then(setLines).finally(() => setLoading(false))
   }, [id])
 
-  const filtered = filter
+  const q = filter.toLowerCase()
+  const filtered = q
     ? lines.filter(l =>
-        l.item_no.toLowerCase().includes(filter.toLowerCase()) ||
-        l.description.toLowerCase().includes(filter.toLowerCase()),
+        l.item_no.toLowerCase().includes(q) ||
+        l.description.toLowerCase().includes(q) ||
+        l.bin_code.toLowerCase().includes(q) ||
+        l.counter_name.toLowerCase().includes(q),
       )
     : lines
 
@@ -49,7 +52,7 @@ export default function AuditPage() {
         <div className="flex items-center gap-2">
           <input
             type="search"
-            placeholder="Search item…"
+            placeholder="Search item, bin, counter…"
             value={filter}
             onChange={e => setFilter(e.target.value)}
             className="px-3 py-2 border border-gray-300 rounded-lg text-sm w-56 focus:outline-none focus:ring-2 focus:ring-teal-500"

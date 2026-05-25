@@ -61,6 +61,7 @@ type Service interface {
 	GetCounterSessionView(ctx context.Context, sessionID, counterID string) (*CounterSessionView, error)
 	GetSessionBins(ctx context.Context, sessionID, counterID string) ([]BinView, error)
 	GetSessionItemByBarcode(ctx context.Context, sessionID, barcode string) (*SessionItem, error)
+	GetSessionItems(ctx context.Context, sessionID string) ([]SessionItem, error)
 	GetAvailableWorksheets(ctx context.Context) ([]ls.AvailableWorksheet, error)
 	GetLSStores(ctx context.Context) ([]ls.LSStore, error)
 }
@@ -628,4 +629,14 @@ func (s *service) GetSessionItemByBarcode(ctx context.Context, sessionID, barcod
 		return nil, err
 	}
 	return &item, nil
+}
+
+func (s *service) GetSessionItems(ctx context.Context, sessionID string) ([]SessionItem, error) {
+	var items []SessionItem
+	if err := s.db.WithContext(ctx).
+		Where("session_id = ?", sessionID).
+		Find(&items).Error; err != nil {
+		return nil, err
+	}
+	return items, nil
 }

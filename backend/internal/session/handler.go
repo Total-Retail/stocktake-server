@@ -54,6 +54,7 @@ func (h *Handler) RegisterCounterRoutes(rg *gin.RouterGroup) {
 	rg.GET("/counter/sessions", h.GetCounterSessionViews)
 	rg.GET("/counter/sessions/:id", h.GetCounterSessionView)
 	rg.GET("/counter/sessions/:id/bins", h.GetSessionBins)
+	rg.GET("/counter/sessions/:id/items", h.GetSessionItems)
 	rg.GET("/counter/sessions/:id/items/:barcode", h.GetSessionItemByBarcode)
 }
 
@@ -344,6 +345,17 @@ func (h *Handler) GetSessionItemByBarcode(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, item)
+}
+
+// GetSessionItems returns all session_items for a session so the mobile app can
+// cache them locally and resolve barcodes offline.
+func (h *Handler) GetSessionItems(c *gin.Context) {
+	items, err := h.svc.GetSessionItems(c.Request.Context(), c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load session items"})
+		return
+	}
+	c.JSON(http.StatusOK, items)
 }
 
 // requireMutableSession fetches the session and returns 409 if it is POSTED or

@@ -52,7 +52,10 @@ func (s *service) SubmitBatch(ctx context.Context, sessionID, counterID string, 
 		}
 	}
 	return s.db.WithContext(ctx).
-		Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "client_uuid"}}, DoNothing: true}).
+		Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "client_uuid"}},
+			DoUpdates: clause.AssignmentColumns([]string{"quantity"}),
+		}).
 		Create(&lines).Error
 }
 

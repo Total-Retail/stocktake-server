@@ -399,15 +399,26 @@ func (s *service) SubmitToLS(ctx context.Context, sessionID, exportDir string) (
 		TotalQty float64
 	}
 	var results []result
+	// DISTINCT ON (item_no, bin_id, counter_id) takes the latest scan per counter per bin,
+	// so a counter who rescanned the same item in the same bin doesn't double-count.
+	// The outer query then restricts to each item's highest round_no before summing across bins.
 	if err := s.db.WithContext(ctx).Raw(`
-		SELECT item_no, COALESCE(SUM(quantity), 0) AS total_qty
-		FROM count_lines
-		WHERE session_id = ?
-		AND round_no = (
-			SELECT MAX(round_no) FROM count_lines cl2
-			WHERE cl2.session_id = count_lines.session_id AND cl2.item_no = count_lines.item_no
+		WITH latest_per_slot AS (
+			SELECT DISTINCT ON (item_no, bin_id, counter_id)
+				item_no, bin_id, counter_id, quantity, round_no
+			FROM count_lines
+			WHERE session_id = ?
+			ORDER BY item_no, bin_id, counter_id, counted_at DESC
+		),
+		max_rounds AS (
+			SELECT item_no, MAX(round_no) AS max_round
+			FROM latest_per_slot
+			GROUP BY item_no
 		)
-		GROUP BY item_no`, sessionID).Scan(&results).Error; err != nil {
+		SELECT l.item_no, COALESCE(SUM(l.quantity), 0) AS total_qty
+		FROM latest_per_slot l
+		JOIN max_rounds m ON m.item_no = l.item_no AND l.round_no = m.max_round
+		GROUP BY l.item_no`, sessionID).Scan(&results).Error; err != nil {
 		return "", err
 	}
 

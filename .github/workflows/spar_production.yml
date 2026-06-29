@@ -38,20 +38,39 @@ jobs:
           sed -i '/^;/d' .github/vpn/spar.ovpn
           sed -i '/^auth-user-pass/d' .github/vpn/spar.ovpn
 
-          printf '%s\n%s\n' '${{ secrets.VPN_USERNAME }}' '${{ secrets.VPN_PASSWORD }}' | \
-            sudo openvpn \
-              --config .github/vpn/spar.ovpn \
-              --auth-user-pass /dev/stdin \
-              --verb 3 &
+          # Write credentials to a file (more reliable than /dev/stdin when backgrounded)
+          printf '%s\n%s\n' '${{ secrets.VPN_USERNAME }}' '${{ secrets.VPN_PASSWORD }}' \
+            > .github/vpn/creds.txt
+          chmod 600 .github/vpn/creds.txt
 
-          echo "Waiting for VPN tunnel..."
-          for i in $(seq 1 30); do
-            if ip addr show tun0 > /dev/null 2>&1; then
+          sudo openvpn \
+            --config .github/vpn/spar.ovpn \
+            --auth-user-pass .github/vpn/creds.txt \
+            --auth-nocache \
+            --data-ciphers 'AES-256-GCM:AES-128-GCM:CHACHA20-POLY1305:AES-128-CBC' \
+            --data-ciphers-fallback AES-128-CBC \
+            --connect-timeout 60 \
+            --log /tmp/openvpn.log \
+            --verb 4 &
+
+          # This appliance is slow to handshake (~60s), so wait up to 5 min and key
+          # off OpenVPN's own "Initialization Sequence Completed" rather than just tun0.
+          echo "Waiting for VPN tunnel (up to 5 min)..."
+          for i in $(seq 1 150); do
+            if grep -q "Initialization Sequence Completed" /tmp/openvpn.log 2>/dev/null \
+               && ip addr show tun0 > /dev/null 2>&1; then
               echo "VPN tunnel is up (attempt $i)"
+              ip addr show tun0
               break
             fi
-            if [ $i -eq 30 ]; then
-              echo "VPN failed to establish tunnel"
+            if grep -qE "AUTH_FAILED|TLS Error|Connection reset" /tmp/openvpn.log 2>/dev/null; then
+              echo "VPN connection rejected — last 40 log lines:"
+              tail -n 40 /tmp/openvpn.log
+              exit 1
+            fi
+            if [ $i -eq 150 ]; then
+              echo "VPN failed to establish tunnel — last 40 log lines:"
+              tail -n 40 /tmp/openvpn.log
               exit 1
             fi
             echo "Attempt $i - waiting..."
@@ -165,4 +184,4 @@ jobs:
         if: always()
         run: |
           sudo killall openvpn || true
-          rm -f deployment.env .github/vpn/spar.ovpn /tmp/stocktake.tar.gz
+          rm -f deployment.env .github/vpn/spar.ovpn .github/vpn/creds.txt /tmp/stocktake.tar.gz

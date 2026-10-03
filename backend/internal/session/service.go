@@ -68,7 +68,7 @@ type Service interface {
 
 type service struct {
 	db       *gorm.DB
-	lsClient *ls.Client
+	lsClient ls.Backend
 	hub      *ws.Hub
 }
 
@@ -90,7 +90,7 @@ func worksheetSeqNoFromSession(sess *Session) int {
 	return n
 }
 
-func NewService(db *gorm.DB, lsClient *ls.Client, hub *ws.Hub) Service {
+func NewService(db *gorm.DB, lsClient ls.Backend, hub *ws.Hub) Service {
 	return &service{db: db, lsClient: lsClient, hub: hub}
 }
 

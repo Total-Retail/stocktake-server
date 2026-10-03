@@ -1,6 +1,8 @@
 package server
 
 import (
+	"fmt"
+	"log"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -14,6 +16,7 @@ import (
 	"github.com/totalretail/stocktake/internal/settings"
 	"github.com/totalretail/stocktake/internal/sms"
 	"github.com/totalretail/stocktake/internal/store"
+	"github.com/totalretail/stocktake/internal/vantage"
 	"github.com/totalretail/stocktake/internal/variance"
 	"github.com/totalretail/stocktake/internal/ws"
 	"github.com/totalretail/stocktake/pkg/middleware"
@@ -37,9 +40,9 @@ func New(cfg *config.Config, db *gorm.DB) *Server {
 	// Services
 	authSvc      := auth.NewService(db, rdb, cfg.JWTSecret, cfg.OTPExpiryMinutes, cfg.OTPMaxRequests)
 	smsSvc       := sms.NewClient(cfg.SMSBaseURL, cfg.SMSAPIKey, cfg.SMSSender)
-	lsClient     := ls.NewClient(cfg.LSBaseURL, cfg.LSCompanyID, cfg.LSUsername, cfg.LSPassword)
+	erpClient    := newERPBackend(cfg)
 	storeSvc     := store.NewService(db)
-	sessionSvc   := session.NewService(db, lsClient, hub)
+	sessionSvc   := session.NewService(db, erpClient, hub)
 	countingSvc  := counting.NewService(db)
 	varianceSvc  := variance.NewService(db)
 	reportSvc    := reporting.NewService(db)
@@ -85,6 +88,27 @@ func New(cfg *config.Config, db *gorm.DB) *Server {
 	router.GET("/ws/sessions/:id", middleware.RequireAuth(authSvc, auth.TokenAdmin), hub.ServeWS)
 
 	return &Server{cfg: cfg, router: router}
+}
+
+// newERPBackend builds the ERP client chosen by ERP_BACKEND. Config.Load has
+// already validated the value and, for Vantage, that every variable is set.
+func newERPBackend(cfg *config.Config) ls.Backend {
+	switch cfg.ERPBackend {
+	case config.ERPBackendVantage:
+		log.Printf("INFO ERP backend: Vantage Retail (tenant environment %q)", cfg.VantageEnvironment)
+		return vantage.NewClient(vantage.Config{
+			TenantID:     cfg.VantageTenantID,
+			Environment:  cfg.VantageEnvironment,
+			CompanyID:    cfg.VantageCompanyID,
+			ClientID:     cfg.VantageClientID,
+			ClientSecret: cfg.VantageClientSecret,
+		})
+	case config.ERPBackendLS:
+		log.Printf("INFO ERP backend: LS Central")
+		return ls.NewClient(cfg.LSBaseURL, cfg.LSCompanyID, cfg.LSUsername, cfg.LSPassword)
+	default:
+		panic(fmt.Sprintf("invalid ERP_BACKEND %q", cfg.ERPBackend))
+	}
 }
 
 func (s *Server) Run() error {

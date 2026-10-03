@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 
 	"github.com/joho/godotenv"
 )
@@ -24,6 +25,16 @@ type Config struct {
 	LSPassword  string
 	LSCompanyID string
 
+	// ERPBackend selects the ERP the server talks to: ERPBackendLS or ERPBackendVantage.
+	ERPBackend string
+
+	// Vantage Retail (Business Central online) — required when ERPBackend is "vantage".
+	VantageTenantID     string
+	VantageEnvironment  string
+	VantageCompanyID    string
+	VantageClientID     string
+	VantageClientSecret string
+
 	OTPExpiryMinutes     int
 	OTPMaxRequests       int
 	CounterTokenHours    int
@@ -32,10 +43,23 @@ type Config struct {
 	ExportDir            string
 }
 
+const (
+	ERPBackendLS      = "ls"
+	ERPBackendVantage = "vantage"
+)
+
 func Load() *Config {
 	_ = godotenv.Load()
 
-	return &Config{
+	erpBackend := getEnv("ERP_BACKEND", ERPBackendLS)
+
+	// LS variables only warn when LS is the backend in use.
+	lsEnv := warnEnv
+	if erpBackend != ERPBackendLS {
+		lsEnv = getEnv
+	}
+
+	cfg := &Config{
 		ServerAddr:  getEnv("SERVER_ADDR", ":8080"),
 		DatabaseURL: mustEnv("DATABASE_URL"),
 		RedisURL:    mustEnv("REDIS_URL"),
@@ -47,10 +71,17 @@ func Load() *Config {
 		SMSAPIKey:  warnEnv("SMS_API_KEY", "placeholder-set-in-production"),
 		SMSSender:  getEnv("SMS_SENDER", "StockCount"),
 
-		LSBaseURL:   warnEnv("LS_BASE_URL", "http://placeholder"),
-		LSUsername:  warnEnv("LS_USERNAME", "placeholder"),
-		LSPassword:  warnEnv("LS_PASSWORD", "placeholder"),
-		LSCompanyID: warnEnv("LS_COMPANY_ID", "placeholder"),
+		LSBaseURL:   lsEnv("LS_BASE_URL", "http://placeholder"),
+		LSUsername:  lsEnv("LS_USERNAME", "placeholder"),
+		LSPassword:  lsEnv("LS_PASSWORD", "placeholder"),
+		LSCompanyID: lsEnv("LS_COMPANY_ID", "placeholder"),
+
+		ERPBackend:          erpBackend,
+		VantageTenantID:     os.Getenv("VANTAGE_TENANT_ID"),
+		VantageEnvironment:  os.Getenv("VANTAGE_ENVIRONMENT"),
+		VantageCompanyID:    os.Getenv("VANTAGE_COMPANY_ID"),
+		VantageClientID:     os.Getenv("VANTAGE_CLIENT_ID"),
+		VantageClientSecret: os.Getenv("VANTAGE_CLIENT_SECRET"),
 
 		OTPExpiryMinutes:     getEnvInt("OTP_EXPIRY_MINUTES", 10),
 		OTPMaxRequests:       getEnvInt("OTP_MAX_REQUESTS", 3),
@@ -58,6 +89,41 @@ func Load() *Config {
 		AdminTokenHours:      getEnvInt("ADMIN_TOKEN_HOURS", 8),
 		VarianceTolerancePct: getEnvFloat("VARIANCE_TOLERANCE_PCT", 2.0),
 		ExportDir:            getEnv("EXPORT_DIR", "./exports"),
+	}
+
+	if err := cfg.ValidateERP(); err != nil {
+		panic(err.Error())
+	}
+	return cfg
+}
+
+// ValidateERP checks ERPBackend and, for Vantage, that every Vantage variable
+// is set. It reads only the Config, so it is testable without a database.
+func (c *Config) ValidateERP() error {
+	switch c.ERPBackend {
+	case ERPBackendLS:
+		return nil
+	case ERPBackendVantage:
+		required := []struct{ env, val string }{
+			{"VANTAGE_TENANT_ID", c.VantageTenantID},
+			{"VANTAGE_ENVIRONMENT", c.VantageEnvironment},
+			{"VANTAGE_COMPANY_ID", c.VantageCompanyID},
+			{"VANTAGE_CLIENT_ID", c.VantageClientID},
+			{"VANTAGE_CLIENT_SECRET", c.VantageClientSecret},
+		}
+		var missing []string
+		for _, r := range required {
+			if strings.TrimSpace(r.val) == "" {
+				missing = append(missing, r.env)
+			}
+		}
+		if len(missing) > 0 {
+			return fmt.Errorf("ERP_BACKEND=vantage but required environment variable(s) not set: %s",
+				strings.Join(missing, ", "))
+		}
+		return nil
+	default:
+		return fmt.Errorf("invalid ERP_BACKEND %q: must be %q or %q", c.ERPBackend, ERPBackendLS, ERPBackendVantage)
 	}
 }
 

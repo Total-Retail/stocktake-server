@@ -1,6 +1,8 @@
 package session
 
 import (
+	"errors"
+	"sort"
 	"context"
 	"fmt"
 	"log"
@@ -9,6 +11,7 @@ import (
 
 	"github.com/totalretail/stocktake/internal/auth"
 	"github.com/totalretail/stocktake/internal/export"
+	"github.com/totalretail/stocktake/internal/finalcount"
 	"github.com/totalretail/stocktake/internal/ls"
 	"github.com/totalretail/stocktake/internal/ws"
 	"gorm.io/gorm"
@@ -53,6 +56,8 @@ type Service interface {
 	ValidatePullReady(ctx context.Context, sessionID string) error
 	PullTheoretical(ctx context.Context, sessionID string) error
 	SubmitToLS(ctx context.Context, sessionID, exportDir string) (exportPath string, err error)
+	CheckPostedDocuments(ctx context.Context) (int, error)
+	SetDocumentNumber(ctx context.Context, id, documentNo string) error
 	UpsertCounter(ctx context.Context, name, mobile string) (*auth.Counter, error)
 	ListCounters(ctx context.Context, sessionID string) ([]auth.Counter, error)
 	GetCounterSessions(ctx context.Context, counterID string) ([]Session, error)
@@ -380,6 +385,14 @@ func (s *service) SubmitToLS(ctx context.Context, sessionID, exportDir string) (
 	if err != nil {
 		return "", fmt.Errorf("session not found: %w", err)
 	}
+	// 11 Oct 2026 — a draft has nothing to send; a posted or aborted session must not
+	// write over what finance has. Re-sending from PENDING_REVIEW is allowed: the ERP
+	// lines are set, not added to, so a corrected count simply replaces the first.
+	switch sess.Status {
+	case StatusActive, StatusPendingReview, StatusReopened:
+	default:
+		return "", fmt.Errorf("a %s session cannot be submitted", sess.Status)
+	}
 	seqNo := worksheetSeqNoFromSession(sess)
 	if seqNo == 0 {
 		return "", fmt.Errorf("no worksheet linked to this session")
@@ -394,44 +407,27 @@ func (s *service) SubmitToLS(ctx context.Context, sessionID, exportDir string) (
 		lineNoByItem[l.ItemNo] = l.LineNo
 	}
 
-	type result struct {
-		ItemNo   string
-		TotalQty float64
-	}
-	var results []result
-	// DISTINCT ON (item_no, bin_id, counter_id) takes the latest scan per counter per bin,
-	// so a counter who rescanned the same item in the same bin doesn't double-count.
-	// The outer query then restricts to each item's highest round_no before summing across bins.
-	if err := s.db.WithContext(ctx).Raw(`
-		WITH latest_per_slot AS (
-			SELECT DISTINCT ON (item_no, bin_id, counter_id)
-				item_no, bin_id, counter_id, quantity, round_no
-			FROM count_lines
-			WHERE session_id = ?
-			ORDER BY item_no, bin_id, counter_id, counted_at DESC
-		),
-		max_rounds AS (
-			SELECT item_no, MAX(round_no) AS max_round
-			FROM latest_per_slot
-			GROUP BY item_no
-		)
-		SELECT l.item_no, COALESCE(SUM(l.quantity), 0) AS total_qty
-		FROM latest_per_slot l
-		JOIN max_rounds m ON m.item_no = l.item_no AND l.round_no = m.max_round
-		GROUP BY l.item_no`, sessionID).Scan(&results).Error; err != nil {
+	// The same final quantity the variance screen and the Excel export show (internal/finalcount).
+	totals, err := finalcount.Totals(ctx, s.db, sessionID)
+	if err != nil {
 		return "", err
 	}
+	itemNos := make([]string, 0, len(totals))
+	for itemNo := range totals {
+		itemNos = append(itemNos, itemNo)
+	}
+	sort.Strings(itemNos)
 
 	var finalLines []ls.FinalCountLine
-	for _, r := range results {
-		lineNo, ok := lineNoByItem[r.ItemNo]
+	for _, itemNo := range itemNos {
+		lineNo, ok := lineNoByItem[itemNo]
 		if !ok {
 			continue
 		}
 		finalLines = append(finalLines, ls.FinalCountLine{
-			ItemNo:     r.ItemNo,
+			ItemNo:     itemNo,
 			LineNo:     lineNo,
-			CountedQty: r.TotalQty,
+			CountedQty: totals[itemNo],
 		})
 	}
 
@@ -447,9 +443,10 @@ func (s *service) SubmitToLS(ctx context.Context, sessionID, exportDir string) (
 	// Generate Excel export
 	exportPath, err := export.GenerateSessionExport(ctx, s.db, sessionID, st.StoreName, sess.StockCountDate, string(sess.Type), exportDir)
 	if err != nil {
-		// Non-fatal: update status even if export fails, but log the error
-		_ = s.UpdateStatus(ctx, sessionID, StatusPendingReview)
-		return "", fmt.Errorf("LS submit succeeded but export failed: %w", err)
+		// The counts are in the ERP: the session moves on, and only the Excel file is
+		// missing (submitting again from PENDING_REVIEW makes it again).
+		log.Printf("ERROR [submit] session=%s — counts sent, export failed: %v", sessionID, err)
+		return "", s.UpdateStatus(ctx, sessionID, StatusPendingReview)
 	}
 
 	// Persist the export file path on the session
@@ -632,10 +629,17 @@ func (s *service) GetSessionBins(ctx context.Context, sessionID, counterID strin
 }
 
 func (s *service) GetSessionItemByBarcode(ctx context.Context, sessionID, barcode string) (*SessionItem, error) {
+	// A barcode first; else the item number, which is what the recount list (and a store
+	// that scans item numbers) sends — the same rule as the phone's own lookup.
 	var item SessionItem
 	err := s.db.WithContext(ctx).
 		Where("session_id = ? AND barcode = ?", sessionID, barcode).
 		First(&item).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		err = s.db.WithContext(ctx).
+			Where("session_id = ? AND item_no = ?", sessionID, barcode).
+			First(&item).Error
+	}
 	if err != nil {
 		return nil, err
 	}

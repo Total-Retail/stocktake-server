@@ -249,6 +249,28 @@ func (c *Client) PostFinalCounts(ctx context.Context, worksheetSeqNo int, lines 
 // this worksheetSeqNo through the bound action resetCounts. Unlike LS it does
 // NOT delete lines: on Vantage the lines are the calculated snapshot, and
 // resetting countedQty is the deliberate equivalent of a fresh count.
+// PostedDocumentNo reads the Vantage stock count with this worksheet number and
+// returns its posted document number once BC has posted it (status Posted), "" while
+// it is still Counting or Transferred. Two counts with the same number are refused.
+func (c *Client) PostedDocumentNo(ctx context.Context, worksheetSeqNo int) (string, error) {
+	var counts []stockCount
+	filter := fmt.Sprintf("worksheetSeqNo eq %d", worksheetSeqNo)
+	if err := c.getList(ctx, "stockCounts", filter, &counts); err != nil {
+		return "", fmt.Errorf("find stock count %d: %w", worksheetSeqNo, err)
+	}
+	switch len(counts) {
+	case 0:
+		return "", fmt.Errorf("no Vantage stock count has worksheetSeqNo %d", worksheetSeqNo)
+	case 1:
+	default:
+		return "", fmt.Errorf("%d Vantage stock counts have worksheetSeqNo %d", len(counts), worksheetSeqNo)
+	}
+	if counts[0].Status != "Posted" {
+		return "", nil
+	}
+	return counts[0].PostedDocumentNo, nil
+}
+
 func (c *Client) ClearWorksheetLines(ctx context.Context, worksheetSeqNo int) error {
 	var counts []stockCount
 	filter := fmt.Sprintf("worksheetSeqNo eq %d", worksheetSeqNo)

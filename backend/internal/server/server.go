@@ -1,7 +1,9 @@
 package server
 
 import (
+	"context"
 	"fmt"
+	"time"
 	"log"
 	"net/http"
 
@@ -43,6 +45,7 @@ func New(cfg *config.Config, db *gorm.DB) *Server {
 	erpClient    := newERPBackend(cfg)
 	storeSvc     := store.NewService(db)
 	sessionSvc   := session.NewService(db, erpClient, hub)
+	session.StartDocumentPoller(context.Background(), sessionSvc, time.Duration(cfg.DocumentCheckMinutes)*time.Minute)
 	countingSvc  := counting.NewService(db)
 	varianceSvc  := variance.NewService(db)
 	reportSvc    := reporting.NewService(db)
@@ -80,7 +83,7 @@ func New(cfg *config.Config, db *gorm.DB) *Server {
 	settingsHandler.RegisterRoutes(adminRoutes)
 
 	// Counter-authenticated routes
-	counterRoutes := api.Group("", middleware.RequireAuth(authSvc, auth.TokenCounter))
+	counterRoutes := api.Group("", middleware.RequireAuth(authSvc, auth.TokenCounter), middleware.RequireSessionCounter(db))
 	countingHandler.RegisterRoutes(counterRoutes)
 	sessionHandler.RegisterCounterRoutes(counterRoutes)
 

@@ -771,3 +771,29 @@ func TestODataString(t *testing.T) {
 		}
 	}
 }
+
+// C4/H2 (11 Oct 2026) — the posted journal's document number, once BC has posted the count.
+func TestPostedDocumentNo(t *testing.T) {
+	f := newFake(t)
+	f.counts = []map[string]any{
+		{"id": "g2", "number": "SC000002", "worksheetSeqNo": 2, "status": "Counting", "postedDocumentNo": ""},
+		{"id": "g3", "number": "SC000003", "worksheetSeqNo": 3, "status": "Posted", "postedDocumentNo": "PIJ-1"},
+		{"id": "g4", "number": "SC000004", "worksheetSeqNo": 4, "status": "Transferred", "postedDocumentNo": ""},
+	}
+	c := f.client()
+	for seq, want := range map[int]string{2: "", 3: "PIJ-1", 4: ""} {
+		got, err := c.PostedDocumentNo(ctx, seq)
+		if err != nil {
+			t.Fatalf("worksheet %d: %v", seq, err)
+		}
+		if got != want {
+			t.Errorf("worksheet %d: document %q, want %q", seq, got, want)
+		}
+	}
+	if _, err := c.PostedDocumentNo(ctx, 9); err == nil {
+		t.Error("a worksheet number no count has was not refused")
+	}
+	if got := f.requests()[0].Filter; got != "worksheetSeqNo eq 2" && got != "worksheetSeqNo eq 3" && got != "worksheetSeqNo eq 4" {
+		t.Errorf("filter = %q", got)
+	}
+}

@@ -29,6 +29,13 @@ type client struct {
 	conn      *websocket.Conn
 	sessionID string
 	send      chan []byte
+	closeOnce sync.Once
+}
+
+// close closes the send channel once, whoever gets there first: Broadcast dropping a
+// client too slow to keep up, or the reader ending.
+func (c *client) close() {
+	c.closeOnce.Do(func() { close(c.send) })
 }
 
 type Hub struct {
@@ -49,14 +56,29 @@ func (h *Hub) Broadcast(sessionID string, event Event) {
 	if err != nil {
 		return
 	}
+	// 11 Oct 2026 — a client whose buffer is full is dropped: taken out of the hub and its
+	// channel closed once. It used to be closed and left registered, so the next
+	// broadcast sent on a closed channel, or the reader closed it again: both panic.
+	var slow []*client
 	h.mu.RLock()
-	defer h.mu.RUnlock()
 	for c := range h.clients[sessionID] {
 		select {
 		case c.send <- data:
 		default:
-			close(c.send)
+			slow = append(slow, c)
 		}
+	}
+	h.mu.RUnlock()
+	if len(slow) == 0 {
+		return
+	}
+	h.mu.Lock()
+	for _, c := range slow {
+		delete(h.clients[sessionID], c)
+	}
+	h.mu.Unlock()
+	for _, c := range slow {
+		c.close()
 	}
 }
 
@@ -91,7 +113,7 @@ func (h *Hub) ServeWS(c *gin.Context) {
 		h.mu.Lock()
 		delete(h.clients[sessionID], cl)
 		h.mu.Unlock()
-		close(cl.send)
+		cl.close()
 		conn.Close()
 	}()
 	for {

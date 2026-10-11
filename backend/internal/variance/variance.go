@@ -5,6 +5,8 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/totalretail/stocktake/internal/finalcount"
+	"github.com/totalretail/stocktake/internal/settings"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -13,6 +15,7 @@ type Service interface {
 	GetConsolidated(ctx context.Context, sessionID string) ([]ConsolidatedLine, error)
 	GetAudit(ctx context.Context, sessionID string) ([]AuditLine, error)
 	GetVarianceReport(ctx context.Context, sessionID string, tolerancePct float64) ([]ConsolidatedLine, error)
+	ToleranceFor(ctx context.Context, sessionID string, fallbackPct float64) float64
 	FlagItems(ctx context.Context, sessionID, flaggedBy string, itemNos []string) error
 	UpdateFlag(ctx context.Context, flagID, reviewedBy, decision, notes string) error
 	GetFlags(ctx context.Context, sessionID string) ([]VarianceFlag, error)
@@ -33,36 +36,31 @@ func (s *service) GetFlags(ctx context.Context, sessionID string) ([]VarianceFla
 
 func (s *service) GetConsolidated(ctx context.Context, sessionID string) ([]ConsolidatedLine, error) {
 	var lines []ConsolidatedLine
-	err := s.db.WithContext(ctx).Raw(`
+	// Counted quantity: the same final figure that is posted and exported (internal/finalcount).
+	err := s.db.WithContext(ctx).Raw(finalcount.CTE+`
 		SELECT
 			si.item_no,
 			si.barcode,
 			si.description,
-			COALESCE(SUM(cl.quantity), 0)                                              AS counted_qty,
-			COALESCE(ts.theoretical_qty, 0)                                            AS theoretical_qty,
-			COALESCE(SUM(cl.quantity), 0) - COALESCE(ts.theoretical_qty, 0)           AS variance,
-			COALESCE(si.unit_cost, 0)                                                  AS unit_cost,
-			(COALESCE(SUM(cl.quantity), 0) - COALESCE(ts.theoretical_qty, 0))
-				* COALESCE(si.unit_cost, 0)                                            AS variance_cost,
+			COALESCE(fc.total_qty, 0)                                                AS counted_qty,
+			COALESCE(ts.theoretical_qty, 0)                                          AS theoretical_qty,
+			COALESCE(fc.total_qty, 0) - COALESCE(ts.theoretical_qty, 0)              AS variance,
+			COALESCE(si.unit_cost, 0)                                                AS unit_cost,
+			(COALESCE(fc.total_qty, 0) - COALESCE(ts.theoretical_qty, 0))
+				* COALESCE(si.unit_cost, 0)                                          AS variance_cost,
 			CASE WHEN COALESCE(ts.theoretical_qty,0) = 0 THEN 0
-			     ELSE ROUND(((COALESCE(SUM(cl.quantity),0) - COALESCE(ts.theoretical_qty,0))
+			     ELSE ROUND(((COALESCE(fc.total_qty,0) - COALESCE(ts.theoretical_qty,0))
 			          / ts.theoretical_qty * 100)::numeric, 2)
-			END                                                                        AS variance_pct,
+			END                                                                      AS variance_pct,
 			EXISTS(
 				SELECT 1 FROM variance_flags vf
-				WHERE vf.session_id = ? AND vf.item_no = si.item_no AND vf.status = 'PENDING'
-			)                                                                          AS flagged
+				WHERE vf.session_id = si.session_id AND vf.item_no = si.item_no AND vf.status = 'PENDING'
+			)                                                                        AS flagged
 		FROM session_items si
-		LEFT JOIN count_lines cl
-			ON cl.session_id = si.session_id AND cl.item_no = si.item_no
-			AND cl.round_no = (
-				SELECT MAX(round_no) FROM count_lines
-				WHERE session_id = si.session_id AND item_no = si.item_no
-			)
+		LEFT JOIN final_counts fc ON fc.item_no = si.item_no
 		LEFT JOIN theoretical_stocks ts
 			ON ts.session_id = si.session_id AND ts.item_no = si.item_no
 		WHERE si.session_id = ?
-		GROUP BY si.item_no, si.barcode, si.description, si.unit_cost, ts.theoretical_qty
 		ORDER BY si.item_no`, sessionID, sessionID).Scan(&lines).Error
 	return lines, err
 }
@@ -79,6 +77,17 @@ func (s *service) GetAudit(ctx context.Context, sessionID string) ([]AuditLine, 
 		WHERE cl.session_id = ?
 		ORDER BY si.item_no, cl.round_no, cl.counted_at`, sessionID).Scan(&lines).Error
 	return lines, err
+}
+
+// ToleranceFor is the variance tolerance for the session's stock count type, from the
+// global variance settings (stream D); fallbackPct (VARIANCE_TOLERANCE_PCT) only when
+// the type has no setting.
+func (s *service) ToleranceFor(ctx context.Context, sessionID string, fallbackPct float64) float64 {
+	var row struct{ Type string }
+	if err := s.db.WithContext(ctx).Raw("SELECT type FROM stock_count_sessions WHERE id = ?", sessionID).Scan(&row).Error; err != nil || row.Type == "" {
+		return fallbackPct
+	}
+	return settings.GetToleranceForType(ctx, s.db, row.Type, fallbackPct)
 }
 
 func (s *service) GetVarianceReport(ctx context.Context, sessionID string, tolerancePct float64) ([]ConsolidatedLine, error) {
@@ -170,7 +179,8 @@ func (h *Handler) GetAudit(c *gin.Context) {
 }
 
 func (h *Handler) GetVarianceReport(c *gin.Context) {
-	lines, err := h.svc.GetVarianceReport(c.Request.Context(), c.Param("id"), h.tolerancePct)
+	tolerance := h.svc.ToleranceFor(c.Request.Context(), c.Param("id"), h.tolerancePct)
+	lines, err := h.svc.GetVarianceReport(c.Request.Context(), c.Param("id"), tolerance)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

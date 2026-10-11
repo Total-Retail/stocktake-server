@@ -43,6 +43,7 @@ export default function SessionOverviewPage() {
   const [abortReason, setAbortReason]     = useState('')
   const [showSubmitDialog, setShowSubmitDialog] = useState(false)
   const [submitConfirmText, setSubmitConfirmText] = useState('')
+  const [documentNo, setDocumentNo] = useState('')
 
   // selectedWorksheetSeqNo: 0 = none
   const [selectedWorksheetSeqNo, setSelectedWorksheetSeqNo] = useState(0)
@@ -126,7 +127,45 @@ async function handleAbort(e: React.FormEvent) {
   }
 }
 
+// The session's Excel export, fetched with the admin token and saved by the browser.
+async function downloadExportFile() {
+  const token = localStorage.getItem('st_token')
+  const res = await fetch(sessionsApi.downloadExport(id), { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+  if (!res.ok) {
+    setError('The Excel export is not available for this session.')
+    return
+  }
+  const blob = await res.blob()
+  const objectUrl = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = objectUrl
+  a.download = `stockcount-${id}.xlsx`
+  a.click()
+  setTimeout(() => URL.revokeObjectURL(objectUrl), 10000)
+}
+
+// C4 (11 Oct 2026) — mark a submitted session POSTED with the document number read from
+// the ERP, for a backend that cannot report it by itself (LS Central today).
+async function handleMarkPosted(e: React.FormEvent) {
+  e.preventDefault()
+  if (!documentNo.trim()) return
+  setActionLoading(true)
+  setError('')
+  setSuccess('')
+  try {
+    await sessionsApi.setDocumentNumber(id, documentNo.trim())
+    setDocumentNo('')
+    setSuccess('Session marked posted.')
+    setSession(await sessionsApi.get(id))
+  } catch (err: unknown) {
+    setError(err instanceof Error ? err.message : 'Could not mark the session posted')
+  } finally {
+    setActionLoading(false)
+  }
+}
+
 async function handleReopen() {
+  if (!window.confirm('Reopen this posted session? The counts sent to the ERP worksheet are cleared and counting starts again.')) return
   setActionLoading(true)
   setError('')
   setSuccess('')
@@ -153,19 +192,7 @@ async function confirmSubmit(e: React.FormEvent) {
     setSubmitConfirmText('')
     setSuccess('Session submitted to LS successfully.')
     setSession(await sessionsApi.get(id))
-    if (result.export_url) {
-      const token = localStorage.getItem('st_token')
-      const res = await fetch(result.export_url, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
-      if (res.ok) {
-        const blob = await res.blob()
-        const objectUrl = URL.createObjectURL(blob)
-        const a = document.createElement('a')
-        a.href = objectUrl
-        a.download = `stockcount-${id}.xlsx`
-        a.click()
-        setTimeout(() => URL.revokeObjectURL(objectUrl), 10000)
-      }
-    }
+    if (result.export_url) await downloadExportFile()
   } catch (err: unknown) {
     setError(err instanceof Error ? err.message : 'Submit failed')
   } finally {
@@ -339,6 +366,49 @@ async function confirmSubmit(e: React.FormEvent) {
           )}
         </CardBody>
       </Card>
+
+      {/* Posted document (C4) and the Excel export */}
+      {(session.status === 'PENDING_REVIEW' || session.status === 'POSTED' || session.export_file_path) && (
+        <Card>
+          <CardHeader><h2 className="text-sm font-semibold text-gray-700">ERP document</h2></CardHeader>
+          <CardBody>
+            <div className="space-y-3 text-sm">
+              {session.status === 'POSTED' && (
+                <div className="flex items-center gap-2">
+                  <span className="text-gray-500">Posted as</span>
+                  <span className="font-medium text-gray-900">{session.document_number ?? '—'}</span>
+                </div>
+              )}
+              {session.status === 'PENDING_REVIEW' && (
+                <>
+                  <p className="text-gray-600">
+                    Waiting for finance to post the count&apos;s journal in the ERP
+                    {session.document_checked_at ? ` (last checked ${new Date(session.document_checked_at).toLocaleString()})` : ''}.
+                  </p>
+                  <form onSubmit={handleMarkPosted} className="flex items-end gap-2">
+                    <label className="flex-1">
+                      <span className="block text-xs text-gray-500 mb-1">Document No. (if the ERP does not report it)</span>
+                      <input
+                        value={documentNo}
+                        onChange={e => setDocumentNo(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+                      />
+                    </label>
+                    <Button size="sm" variant="secondary" loading={actionLoading} disabled={!documentNo.trim()}>
+                      Mark posted
+                    </Button>
+                  </form>
+                </>
+              )}
+              {session.export_file_path && (
+                <Button size="sm" variant="secondary" onClick={downloadExportFile}>
+                  Download Excel export
+                </Button>
+              )}
+            </div>
+          </CardBody>
+        </Card>
+      )}
 
       {/* Session actions */}
       {(actions.length > 0 || canAbort || session.status === 'POSTED') && (

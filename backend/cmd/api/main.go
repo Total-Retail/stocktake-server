@@ -3,15 +3,12 @@ package main
 import (
 	"log"
 
-	"github.com/totalretail/stocktake/internal/config"
-	"github.com/totalretail/stocktake/internal/counting"
-	"github.com/totalretail/stocktake/internal/db"
-	"github.com/totalretail/stocktake/internal/server"
-	"github.com/totalretail/stocktake/internal/session"
-	"github.com/totalretail/stocktake/internal/settings"
-	"github.com/totalretail/stocktake/internal/store"
-	"github.com/totalretail/stocktake/internal/variance"
 	"github.com/totalretail/stocktake/internal/auth"
+	"github.com/totalretail/stocktake/internal/config"
+	"github.com/totalretail/stocktake/internal/db"
+	"github.com/totalretail/stocktake/internal/schema"
+	"github.com/totalretail/stocktake/internal/server"
+	"github.com/totalretail/stocktake/internal/settings"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -23,33 +20,9 @@ func main() {
 		log.Fatalf("failed to connect to database: %v", err)
 	}
 
-	// Enable uuid-ossp for gen_random_uuid()
-	database.Exec("CREATE EXTENSION IF NOT EXISTS pgcrypto")
-
-	// Run idempotent schema renames BEFORE AutoMigrate so GORM sees the new names
-	if err := db.RunSchemaRenames(database); err != nil {
-		log.Fatalf("schema rename migration failed: %v", err)
-	}
-
-	// AutoMigrate all models (additive only — adds new columns, does not drop or rename)
-	if err := database.AutoMigrate(
-		&store.Store{},
-		&store.Area{},
-		&store.Aisle{},
-		&store.Bin{},
-		&auth.AdminUser{},
-		&auth.Counter{},
-		&session.Session{},
-		&session.SessionItem{},
-		&session.SessionCounter{},
-		&session.TheoreticalStock{},
-		&counting.CountLine{},
-		&counting.BinSubmission{},
-		&variance.VarianceFlag{},
-		&variance.RecountDecision{},
-		&settings.VarianceSetting{},
-	); err != nil {
-		log.Fatalf("automigrate failed: %v", err)
+	// Schema renames, then AutoMigrate of every model (internal/schema).
+	if err := schema.Migrate(database); err != nil {
+		log.Fatalf("schema migration failed: %v", err)
 	}
 
 	// Seed default admin if none exists

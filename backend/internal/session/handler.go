@@ -43,6 +43,7 @@ func (h *Handler) RegisterRoutes(rg *gin.RouterGroup) {
 	rg.POST("/sessions/:id/pull-theoretical", h.PullTheoretical)
 	rg.POST("/sessions/:id/submit", h.SubmitToLS)
 	rg.GET("/sessions/:id/export", h.DownloadExport)
+	rg.POST("/sessions/:id/document-number", h.SetDocumentNumber)
 
 	rg.GET("/ls/worksheets", h.GetAvailableWorksheets)
 	rg.GET("/ls/stores", h.GetLSStores)
@@ -284,6 +285,23 @@ func (h *Handler) SubmitToLS(c *gin.Context) {
 		resp["export_url"] = fmt.Sprintf("/api/v1/sessions/%s/export", sessionID)
 	}
 	c.JSON(http.StatusOK, resp)
+}
+
+// SetDocumentNumber marks a submitted session POSTED with the ERP document number an
+// admin entered (for a backend that cannot report it, LS Central today).
+func (h *Handler) SetDocumentNumber(c *gin.Context) {
+	var body struct {
+		DocumentNumber string `json:"document_number"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := h.svc.SetDocumentNumber(c.Request.Context(), c.Param("id"), body.DocumentNumber); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "session marked posted"})
 }
 
 func (h *Handler) DownloadExport(c *gin.Context) {

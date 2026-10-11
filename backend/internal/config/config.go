@@ -40,6 +40,9 @@ type Config struct {
 	CounterTokenHours    int
 	AdminTokenHours      int
 	VarianceTolerancePct float64
+	// DocumentCheckMinutes: how often submitted sessions are checked for their posted
+	// ERP document (C4/H2). 0 turns the check off.
+	DocumentCheckMinutes int
 	ExportDir            string
 }
 
@@ -88,6 +91,7 @@ func Load() *Config {
 		CounterTokenHours:    getEnvInt("COUNTER_TOKEN_HOURS", 12),
 		AdminTokenHours:      getEnvInt("ADMIN_TOKEN_HOURS", 8),
 		VarianceTolerancePct: getEnvFloat("VARIANCE_TOLERANCE_PCT", 2.0),
+		DocumentCheckMinutes: int(getEnvFloat("DOCUMENT_CHECK_INTERVAL_MINUTES", 5)),
 		ExportDir:            getEnv("EXPORT_DIR", "./exports"),
 	}
 

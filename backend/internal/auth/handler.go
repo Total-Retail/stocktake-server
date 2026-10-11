@@ -67,15 +67,25 @@ func (h *Handler) RequestOTP(c *gin.Context) {
 		return
 	}
 	req.Mobile = NormalizeMobile(req.Mobile)
+	// 11 Oct 2026 — only a counter an admin has put on a stock count gets an OTP.
+	allowed, err := CounterMayLogIn(c.Request.Context(), h.db, req.Mobile)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not check the number"})
+		return
+	}
+	if !allowed {
+		c.JSON(http.StatusForbidden, gin.H{"error": "this number is not on a stock count; ask your supervisor to add you"})
+		return
+	}
 	otp, err := h.svc.GenerateOTP(c.Request.Context(), req.Mobile)
 	if err != nil {
 		c.JSON(http.StatusTooManyRequests, gin.H{"error": err.Error()})
 		return
 	}
-	// DEV: log OTP so it can be used when SMS gateway is unavailable
-	log.Printf("DEV [RequestOTP] OTP for %s: %s", req.Mobile, otp)
 	if err := h.smsSvc.Send(c.Request.Context(), req.Mobile, "Your StockCount OTP is: "+otp+". Valid for 10 minutes."); err != nil {
-		log.Printf("WARN [RequestOTP] SMS send failed for %s: %v — OTP still valid, check logs", req.Mobile, err)
+		// 11 Oct 2026 — the OTP is logged only when the SMS did not go, so a supervisor can
+		// read it out; a sent OTP never reaches the log.
+		log.Printf("WARN [RequestOTP] SMS send failed for %s: %v — OTP %s is still valid", req.Mobile, err, otp)
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "OTP sent"})
 }
@@ -96,8 +106,13 @@ func (h *Handler) VerifyOTP(c *gin.Context) {
 		return
 	}
 
-	counter := Counter{Name: req.Mobile, MobileNumber: req.Mobile}
-	h.db.Where(Counter{MobileNumber: req.Mobile}).FirstOrCreate(&counter)
+	// The counter must already exist (an admin added it to a session); a valid OTP no longer
+	// creates one.
+	var counter Counter
+	if err := h.db.Where("mobile_number = ?", req.Mobile).First(&counter).Error; err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": "this number is not on a stock count"})
+		return
+	}
 
 	token, err := h.svc.IssueToken(counter.ID, TokenCounter, h.counterTokenHours)
 	if err != nil {

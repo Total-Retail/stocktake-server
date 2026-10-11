@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/totalretail/stocktake/internal/finalcount"
 	"github.com/xuri/excelize/v2"
 	"gorm.io/gorm"
 )
@@ -44,28 +45,20 @@ func GenerateSessionExport(ctx context.Context, db *gorm.DB, sessionID, storeNam
 		UnitCost       float64
 	}
 	var rows []rawRow
-	if err := db.WithContext(ctx).Raw(`
+	// Counted quantity: the same final figure that is posted and shown (internal/finalcount).
+	if err := db.WithContext(ctx).Raw(finalcount.CTE+`
 		SELECT
 			si.item_no,
 			si.description,
 			si.uo_m,
-			COALESCE(cl.total_qty, 0) AS counted_qty,
+			COALESCE(fc.total_qty, 0) AS counted_qty,
 			COALESCE(ts.theoretical_qty, 0) AS theoretical_qty,
 			si.unit_cost
 		FROM session_items si
 		LEFT JOIN theoretical_stocks ts ON ts.session_id = si.session_id AND ts.item_no = si.item_no
-		LEFT JOIN (
-			SELECT item_no, SUM(quantity) AS total_qty
-			FROM count_lines
-			WHERE session_id = @sid
-			  AND round_no = (
-				  SELECT MAX(round_no) FROM count_lines cl2
-				  WHERE cl2.session_id = count_lines.session_id AND cl2.item_no = count_lines.item_no
-			  )
-			GROUP BY item_no
-		) cl ON cl.item_no = si.item_no
-		WHERE si.session_id = @sid
-		ORDER BY si.item_no`, map[string]interface{}{"sid": sessionID}).Scan(&rows).Error; err != nil {
+		LEFT JOIN final_counts fc ON fc.item_no = si.item_no
+		WHERE si.session_id = ?
+		ORDER BY si.item_no`, sessionID, sessionID).Scan(&rows).Error; err != nil {
 		return "", fmt.Errorf("query count data: %w", err)
 	}
 

@@ -571,3 +571,10 @@ func jsonFloat(m map[string]interface{}, key string) float64 {
 	v, _ := m[key].(float64)
 	return v
 }
+
+// PostedDocumentNo is not supported against LS Central yet: which posted document a
+// store inventory worksheet becomes is an open question (StockCount_Build_Plan.md,
+// C4/H2). Sessions on LS are marked POSTED with the document number by hand.
+func (c *Client) PostedDocumentNo(ctx context.Context, worksheetSeqNo int) (string, error) {
+	return "", ErrPostedDocumentUnsupported
+}

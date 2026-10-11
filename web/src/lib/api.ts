@@ -79,6 +79,11 @@ export const sessions = {
       body: JSON.stringify({ worksheet_seq_no: worksheetSeqNo }),
     }),
   downloadExport: (id: string) => `${API_BASE}/sessions/${id}/export`,
+  setDocumentNumber: (id: string, documentNumber: string) =>
+    request(`/sessions/${id}/document-number`, {
+      method: 'POST',
+      body: JSON.stringify({ document_number: documentNumber }),
+    }),
 }
 
 // ── Variance & Audit ──────────────────────────────────────────────────────────

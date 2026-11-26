@@ -18,9 +18,10 @@
   written back into the file, so running the script again keeps them (a changed
   DB_PASSWORD would lock the server out of its existing database).
 
-  maflam-live is limited to the main branch. The script also tries to make you (or
-  -LiveReviewer) a required approver for live; GitHub only allows that on private
-  repositories with GitHub Enterprise, so on other plans it says so and carries on.
+  maflam-live is limited to the main branch. With -RequireApproval the script also makes you
+  (or -LiveReviewer) a required approver for live; without it, any approver is removed (live
+  deploys are still manual-only). GitHub only allows approvers on private repositories with
+  GitHub Enterprise, so on other plans it says so and carries on.
 #>
 [CmdletBinding()]
 param(
@@ -28,6 +29,7 @@ param(
   [ValidateSet("testing", "live")]
   [string[]] $Targets = @("testing", "live"),
   [string]   $LiveReviewer = "",
+  [switch]   $RequireApproval,
   [switch]   $DryRun
 )
 
@@ -279,7 +281,7 @@ foreach ($target in $Targets) {
 
   # -- The environment: main only; live also tries a required approver ---------
   $body = @{ deployment_branch_policy = @{ protected_branches = $false; custom_branch_policies = $true } }
-  if ($target -eq "live") {
+  if ($target -eq "live" -and $RequireApproval) {
     $login = if ($LiveReviewer) { $LiveReviewer } else { (Invoke-Gh @("api", "user", "--jq", ".login")).Output.Trim() }
     $userId = [int64](Invoke-Gh @("api", "users/$login", "--jq", ".id")).Output.Trim()
     $withReviewer = $body.Clone()
@@ -294,9 +296,17 @@ foreach ($target in $Targets) {
         -InputText ($body | ConvertTo-Json -Depth 5) | Out-Null
     }
   } else {
+    # No approver (an existing one is removed: reviewers is set to an empty list).
+    $body.reviewers = @()
     Invoke-Gh @("api", "-X", "PUT", "repos/$Repo/environments/$envName", "--input", "-") `
       -InputText ($body | ConvertTo-Json -Depth 5) | Out-Null
-    Write-Host "  environment ${envName}: main only"
+    # GitHub's docs don't say what an empty reviewers list does to existing ones: read it back.
+    $rules = (Invoke-Gh @("api", "repos/$Repo/environments/$envName", "--jq", ".protection_rules[]?.type") -AllowFail).Output.Trim()
+    if ($rules -match 'required_reviewers') {
+      Write-Warning "  ${envName} still has a required approver: remove it in GitHub, Settings -> Environments -> $envName -> Required reviewers"
+    } else {
+      Write-Host "  environment ${envName}: main only, no approval needed"
+    }
   }
   $policies = (Invoke-Gh @("api", "repos/$Repo/environments/$envName/deployment-branch-policies",
                "--jq", ".branch_policies[].name")).Output

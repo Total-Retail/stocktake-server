@@ -285,8 +285,15 @@ jobs:
       # ── 6. Check it is the Vantage server, with Label Printing ─────────────────
       - name: Verify
         run: |
-          # Through the stack's own nginx, whichever edge is in use.
-          info="$(ssh target "cd '$APP_DIR' && docker compose -p 'maflam-$TARGET' \$(cat .compose-files) exec -T stocktake-proxy wget -qO- http://localhost/api/v1/system/info")"
+          # Through the stack's own nginx, whichever edge is in use. 127.0.0.1, not localhost
+          # (busybox wget may try ::1, where nginx does not listen); nginx may need a moment.
+          info=""
+          for i in $(seq 1 10); do
+            info="$(ssh target "cd '$APP_DIR' && docker compose -p 'maflam-$TARGET' \$(cat .compose-files) exec -T stocktake-proxy wget -qO- http://127.0.0.1/api/v1/system/info" 2>/dev/null || true)"
+            [ -n "$info" ] && break
+            sleep 3
+          done
+          [ -n "$info" ] || { echo "::error::The stack's nginx did not answer /api/v1/system/info"; exit 1; }
           echo "$info"
           echo "$info" | grep -q '"erp_backend":"vantage"' || { echo "::error::The server is not running ERP_BACKEND=vantage"; exit 1; }
           echo "$info" | grep -q '"label_worksheets"'      || { echo "::error::Label Printing is not offered by this build"; exit 1; }

@@ -193,20 +193,23 @@ jobs:
             --exclude=.git --exclude=.github --exclude=node_modules --exclude=.next \
             --exclude='.env' --exclude='.env.*' --exclude=deploy \
             .
-          scp /tmp/release.tgz target:/tmp/stocktake-release.tgz
-          scp deployment.env target:/tmp/stocktake.env
-          ssh target "APP_DIR='$APP_DIR' bash -s" <<'EOF'
+          # Per run names on the box: testing and live can deploy at the same time, and each must
+          # unpack its own code and install its own .env (a shared name once swapped them).
+          up="stocktake-$TARGET-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          scp /tmp/release.tgz "target:/tmp/$up.tgz"
+          scp deployment.env "target:/tmp/$up.env"
+          ssh target "APP_DIR='$APP_DIR' UP='$up' bash -s" <<'EOF'
           set -euo pipefail
           case "$APP_DIR" in /*/*) ;; *) echo "APP_DIR must be a full path at least two levels deep: $APP_DIR"; exit 1 ;; esac
           mkdir -p "$APP_DIR" "$APP_DIR/nginx/certs"
           rm -rf "$APP_DIR/.release" && mkdir -p "$APP_DIR/.release"
-          tar -xzf /tmp/stocktake-release.tgz -C "$APP_DIR/.release"
+          tar -xzf "/tmp/$UP.tgz" -C "$APP_DIR/.release"
           # Replace the code; keep the .env and any certificates placed on the server.
           rsync -a --delete --exclude '.env' --exclude 'nginx/certs/' --exclude '.release/' \
             "$APP_DIR/.release/" "$APP_DIR/"
-          rm -rf "$APP_DIR/.release" /tmp/stocktake-release.tgz
-          install -m 600 /tmp/stocktake.env "$APP_DIR/.env"
-          rm -f /tmp/stocktake.env
+          rm -rf "$APP_DIR/.release" "/tmp/$UP.tgz"
+          install -m 600 "/tmp/$UP.env" "$APP_DIR/.env"
+          rm -f "/tmp/$UP.env"
           echo "Release unpacked in $APP_DIR"
           EOF
 

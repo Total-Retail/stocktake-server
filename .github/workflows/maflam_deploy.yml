@@ -1,0 +1,301 @@
+name: Deploy Maflam Trading (Vantage)
+
+# Maflam Trading runs the StockCount / Vantage Suite server on a Linux cloud box, against
+# Vantage Retail on Business Central online (ERP_BACKEND=vantage) — unlike Yellowcob/SPAR
+# (spar_production.yml: LS Central over VPN to a Windows/WSL box).
+#
+# Two GitHub environments hold everything per target (deploy/maflam/README.md):
+#   maflam-testing — deployed on every push to main, and on demand
+#   maflam-live    — deployed on demand only (Run workflow → target: live), from main
+# Both run on the same Linux box as separate Docker Compose projects (maflam-testing,
+# maflam-live): own containers, volumes (database), images and directory. Each environment
+# has its own Business Central environment/company (VANTAGE_*) and its own database/cache/
+# token secrets. They sit behind the nginx already on the box, as 3retail-licensing does
+# (EDGE_MODE=proxy): with PROXY_NETWORK (nginx in docker) the stack's nginx joins that network
+# with VIRTUAL_HOST (nginx-proxy routes it; LETSENCRYPT_HOST when acme-companion is there) and
+# publishes no port; without it, the stack listens on 127.0.0.1:HTTP_PORT for the host's nginx.
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Where to deploy
+        type: choice
+        options: [testing, live]
+        default: testing
+
+permissions:
+  contents: read
+
+# One deploy per target at a time; a newer push waits rather than cancelling a deploy halfway.
+concurrency:
+  group: maflam-${{ github.event_name == 'workflow_dispatch' && inputs.target || 'testing' }}
+  cancel-in-progress: false
+
+jobs:
+  checks:
+    name: Build and test the server
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_PASSWORD: ci
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - name: go vet and go test (database tests included)
+        working-directory: backend
+        env:
+          STOCKTAKE_TEST_DSN: postgres://postgres:ci@localhost:5432/postgres?sslmode=disable
+        run: |
+          go vet ./...
+          go test ./...
+
+  deploy:
+    name: Deploy to maflam-${{ github.event_name == 'workflow_dispatch' && inputs.target || 'testing' }}
+    needs: checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: maflam-${{ github.event_name == 'workflow_dispatch' && inputs.target || 'testing' }}
+      url: ${{ vars.PUBLIC_URL }}
+    env:
+      TARGET: ${{ github.event_name == 'workflow_dispatch' && inputs.target || 'testing' }}
+      SSH_HOST: ${{ vars.SSH_HOST }}
+      SSH_PORT: ${{ vars.SSH_PORT || '22' }}
+      SSH_USER: ${{ vars.SSH_USER }}
+      PUBLIC_URL: ${{ vars.PUBLIC_URL }}
+      # Per stack on the shared box: directory, Compose project and port (127.0.0.1 only;
+      # the host's nginx proxies the domain to it). Defaults: testing /opt/stocktake/testing :8085,
+      # live /opt/stocktake/live :8084.
+      APP_DIR: ${{ vars.APP_DIR || format('/opt/stocktake/{0}', github.event_name == 'workflow_dispatch' && inputs.target || 'testing') }}
+      HTTP_PORT: ${{ vars.HTTP_PORT || ((github.event_name == 'workflow_dispatch' && inputs.target == 'live') && '8084' || '8085') }}
+      # The docker network of the nginx container on the box (empty: nginx on the host).
+      PROXY_NETWORK: ${{ vars.PROXY_NETWORK }}
+      # LETSENCRYPT_HOST for nginx-proxy's acme-companion: auto (when it runs) | yes | no
+      PROXY_LETSENCRYPT: ${{ vars.PROXY_LETSENCRYPT || 'auto' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── 1. Everything the server needs is set ──────────────────────────────────
+      - name: Check the environment's variables and secrets
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          REDIS_PASSWORD: ${{ secrets.REDIS_PASSWORD }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          OTP_SECRET: ${{ secrets.OTP_SECRET }}
+          VANTAGE_CLIENT_SECRET: ${{ secrets.VANTAGE_CLIENT_SECRET }}
+          VANTAGE_TENANT_ID: ${{ vars.VANTAGE_TENANT_ID }}
+          VANTAGE_ENVIRONMENT: ${{ vars.VANTAGE_ENVIRONMENT }}
+          VANTAGE_COMPANY_ID: ${{ vars.VANTAGE_COMPANY_ID }}
+          VANTAGE_CLIENT_ID: ${{ vars.VANTAGE_CLIENT_ID }}
+        run: |
+          missing=()
+          for name in SSH_HOST SSH_USER SSH_PRIVATE_KEY DB_PASSWORD REDIS_PASSWORD JWT_SECRET OTP_SECRET \
+                      VANTAGE_TENANT_ID VANTAGE_ENVIRONMENT VANTAGE_COMPANY_ID VANTAGE_CLIENT_ID VANTAGE_CLIENT_SECRET; do
+            [ -n "${!name}" ] || missing+=("$name")
+          done
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error::Not set in environment ${{ github.event_name == 'workflow_dispatch' && inputs.target || 'testing' }}: ${missing[*]} — run deploy/maflam/setup-github.ps1"
+            exit 1
+          fi
+
+      # ── 2. SSH ─────────────────────────────────────────────────────────────────
+      - name: Configure SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ vars.SSH_KNOWN_HOSTS }}
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          if [ -n "$SSH_KNOWN_HOSTS" ]; then
+            printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          else
+            echo "::warning::SSH_KNOWN_HOSTS is not set: trusting the host key the server presents now (ssh-keyscan). Set it to pin the key."
+            ssh-keyscan -p "$SSH_PORT" -H "$SSH_HOST" > ~/.ssh/known_hosts 2>/dev/null
+          fi
+          cat > ~/.ssh/config <<EOF
+          Host target
+            HostName $SSH_HOST
+            Port $SSH_PORT
+            User $SSH_USER
+            IdentityFile ~/.ssh/deploy_key
+            IdentitiesOnly yes
+            ServerAliveInterval 30
+          EOF
+          ssh target 'echo "SSH OK: $(hostname)"; docker version --format "Docker {{.Server.Version}}"; docker compose version'
+
+      # ── 3. The server's .env, from this environment's variables and secrets ────
+      # Written as KEY='value' so docker compose takes each value literally (no $-expansion).
+      - name: Build the .env
+        env:
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          REDIS_PASSWORD: ${{ secrets.REDIS_PASSWORD }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          OTP_SECRET: ${{ secrets.OTP_SECRET }}
+          SMS_BASE_URL: ${{ vars.SMS_BASE_URL }}
+          SMS_SENDER: ${{ vars.SMS_SENDER }}
+          SMS_API_KEY: ${{ secrets.SMS_API_KEY }}
+          ERP_BACKEND: vantage
+          DEPLOYMENT_NAME: ${{ vars.DEPLOYMENT_NAME || 'Maflam Trading' }}
+          VANTAGE_TENANT_ID: ${{ vars.VANTAGE_TENANT_ID }}
+          VANTAGE_ENVIRONMENT: ${{ vars.VANTAGE_ENVIRONMENT }}
+          VANTAGE_COMPANY_ID: ${{ vars.VANTAGE_COMPANY_ID }}
+          VANTAGE_CLIENT_ID: ${{ vars.VANTAGE_CLIENT_ID }}
+          VANTAGE_CLIENT_SECRET: ${{ secrets.VANTAGE_CLIENT_SECRET }}
+          PUBLIC_WS_URL: ${{ vars.PUBLIC_WS_URL }}
+          OTP_EXPIRY_MINUTES: ${{ vars.OTP_EXPIRY_MINUTES || '10' }}
+          OTP_MAX_REQUESTS: ${{ vars.OTP_MAX_REQUESTS || '3' }}
+          COUNTER_TOKEN_HOURS: ${{ vars.COUNTER_TOKEN_HOURS || '12' }}
+          ADMIN_TOKEN_HOURS: ${{ vars.ADMIN_TOKEN_HOURS || '8' }}
+          DEVICE_TOKEN_DAYS: ${{ vars.DEVICE_TOKEN_DAYS || '365' }}
+          VARIANCE_TOLERANCE_PCT: ${{ vars.VARIANCE_TOLERANCE_PCT || '2.0' }}
+        run: |
+          # PUBLIC_WS_URL: the portal's live-monitor websocket; from PUBLIC_URL when not set.
+          if [ -z "$PUBLIC_WS_URL" ] && [ -n "$PUBLIC_URL" ]; then
+            PUBLIC_WS_URL="$(printf '%s' "$PUBLIC_URL" | sed -e 's#^https://#wss://#' -e 's#^http://#ws://#' -e 's#/*$##')"
+          fi
+          umask 077
+          : > deployment.env
+          for name in DB_PASSWORD REDIS_PASSWORD JWT_SECRET OTP_SECRET SMS_BASE_URL SMS_SENDER SMS_API_KEY \
+                      ERP_BACKEND DEPLOYMENT_NAME VANTAGE_TENANT_ID VANTAGE_ENVIRONMENT VANTAGE_COMPANY_ID \
+                      VANTAGE_CLIENT_ID VANTAGE_CLIENT_SECRET PUBLIC_WS_URL OTP_EXPIRY_MINUTES OTP_MAX_REQUESTS \
+                      COUNTER_TOKEN_HOURS ADMIN_TOKEN_HOURS DEVICE_TOKEN_DAYS VARIANCE_TOLERANCE_PCT; do
+            value="${!name}"
+            case "$value" in
+              *"'"*|*$'\n'*) echo "::error::$name contains a quote or a line break, which the .env cannot hold"; exit 1 ;;
+            esac
+            printf "%s='%s'\n" "$name" "$value" >> deployment.env
+          done
+          echo "Wrote $(wc -l < deployment.env) settings (values not shown)."
+
+      # ── 4. Code and .env to the server ─────────────────────────────────────────
+      - name: Upload the release
+        run: |
+          tar -czf /tmp/release.tgz \
+            --exclude=.git --exclude=.github --exclude=node_modules --exclude=.next \
+            --exclude='.env' --exclude='.env.*' --exclude=deploy \
+            .
+          scp /tmp/release.tgz target:/tmp/stocktake-release.tgz
+          scp deployment.env target:/tmp/stocktake.env
+          ssh target "APP_DIR='$APP_DIR' bash -s" <<'EOF'
+          set -euo pipefail
+          case "$APP_DIR" in /*/*) ;; *) echo "APP_DIR must be a full path at least two levels deep: $APP_DIR"; exit 1 ;; esac
+          mkdir -p "$APP_DIR" "$APP_DIR/nginx/certs"
+          rm -rf "$APP_DIR/.release" && mkdir -p "$APP_DIR/.release"
+          tar -xzf /tmp/stocktake-release.tgz -C "$APP_DIR/.release"
+          # Replace the code; keep the .env and any certificates placed on the server.
+          rsync -a --delete --exclude '.env' --exclude 'nginx/certs/' --exclude '.release/' \
+            "$APP_DIR/.release/" "$APP_DIR/"
+          rm -rf "$APP_DIR/.release" /tmp/stocktake-release.tgz
+          install -m 600 /tmp/stocktake.env "$APP_DIR/.env"
+          rm -f /tmp/stocktake.env
+          echo "Release unpacked in $APP_DIR"
+          EOF
+
+      # ── 5. Build and start ─────────────────────────────────────────────────────
+      # The stack's own compose file, from docker-compose.yml: no fixed container names (two
+      # stacks share the box; SPAR keeps them). Its nginx (stocktake-proxy) is reached either on
+      # the box's nginx network (PROXY_NETWORK, no host port) or on 127.0.0.1:HTTP_PORT.
+      - name: Build and start the containers
+        run: |
+          DOMAIN="$(printf '%s' "$PUBLIC_URL" | sed -E 's#^[a-z]+://##; s#[/:].*$##')"
+          ssh target "APP_DIR='$APP_DIR' HTTP_PORT='$HTTP_PORT' PROJECT='maflam-$TARGET' PROXY_NETWORK='$PROXY_NETWORK' PROXY_LETSENCRYPT='$PROXY_LETSENCRYPT' DOMAIN='$DOMAIN' bash -s" <<'EOF'
+          set -euo pipefail
+          cd "$APP_DIR"
+          files=(-f docker-compose.stack.yml)
+          if [ -n "$PROXY_NETWORK" ]; then
+            docker network inspect "$PROXY_NETWORK" >/dev/null 2>&1 \
+              || { echo "PROXY_NETWORK '$PROXY_NETWORK' does not exist on this box (docker network ls)"; exit 1; }
+            [ -n "$DOMAIN" ] || { echo "PUBLIC_URL is needed with PROXY_NETWORK (it gives VIRTUAL_HOST)"; exit 1; }
+            # No host port: drop the proxy's "ports:" entry.
+            sed -e '/^[[:space:]]*container_name:/d' \
+                -e '/^[[:space:]]*ports:[[:space:]]*$/{N;/"8084:80"/d}' \
+                docker-compose.yml > docker-compose.stack.yml
+            ! grep -q '8084:80' docker-compose.stack.yml || { echo "Could not remove the 8084:80 port mapping"; exit 1; }
+            le="$PROXY_LETSENCRYPT"
+            if [ "$le" = auto ]; then
+              if docker ps --format '{{.Image}}' | grep -qE 'acme-companion|letsencrypt-nginx-proxy-companion'; then le=yes; else le=no; fi
+            fi
+            {
+              echo "services:"
+              echo "  stocktake-proxy:"
+              echo "    environment:"
+              echo "      VIRTUAL_HOST: \"$DOMAIN\""
+              echo "      VIRTUAL_PORT: \"80\""
+              if [ "$le" = yes ]; then
+                echo "      LETSENCRYPT_HOST: \"$DOMAIN\""
+              else
+                echo "      HTTPS_METHOD: \"nohttps\""
+              fi
+              echo "    networks: [internal, edge]"
+              echo "networks:"
+              echo "  edge:"
+              echo "    external: true"
+              echo "    name: \"$PROXY_NETWORK\""
+            } > docker-compose.edge.yml
+            files+=(-f docker-compose.edge.yml)
+            echo "Edge: $DOMAIN on the docker network $PROXY_NETWORK (LETSENCRYPT_HOST: $le)"
+          else
+            sed -e '/^[[:space:]]*container_name:/d' \
+                -e "s#\"8084:80\"#\"127.0.0.1:${HTTP_PORT}:80\"#" \
+                docker-compose.yml > docker-compose.stack.yml
+            grep -q "127.0.0.1:${HTTP_PORT}:80" docker-compose.stack.yml || { echo "Port mapping 8084:80 not found in docker-compose.yml"; exit 1; }
+            rm -f docker-compose.edge.yml
+            echo "Edge: the box's nginx proxies ${DOMAIN:-the domain} to 127.0.0.1:$HTTP_PORT"
+          fi
+          printf '%s\n' "${files[@]}" | paste -sd' ' > .compose-files
+          dc() { docker compose -p "$PROJECT" "${files[@]}" "$@"; }
+          dc config --quiet
+          dc pull --ignore-pull-failures --quiet || true
+          dc up --build -d --remove-orphans
+          echo "Waiting for the API ($PROJECT) to report healthy..."
+          for i in $(seq 1 60); do
+            api="$(dc ps -q stocktake-api)"
+            status="$(docker inspect -f '{{.State.Health.Status}}' "$api" 2>/dev/null || echo missing)"
+            [ "$status" = healthy ] && { echo "API healthy"; break; }
+            if [ "$i" -eq 60 ]; then
+              echo "API not healthy (status: $status). Last log lines:"
+              dc logs --tail 60 stocktake-api || true
+              exit 1
+            fi
+            sleep 3
+          done
+          docker image prune -f >/dev/null
+          dc ps
+          EOF
+
+      # ── 6. Check it is the Vantage server, with Label Printing ─────────────────
+      - name: Verify
+        run: |
+          # Through the stack's own nginx, whichever edge is in use.
+          info="$(ssh target "cd '$APP_DIR' && docker compose -p 'maflam-$TARGET' \$(cat .compose-files) exec -T stocktake-proxy wget -qO- http://localhost/api/v1/system/info")"
+          echo "$info"
+          echo "$info" | grep -q '"erp_backend":"vantage"' || { echo "::error::The server is not running ERP_BACKEND=vantage"; exit 1; }
+          echo "$info" | grep -q '"label_worksheets"'      || { echo "::error::Label Printing is not offered by this build"; exit 1; }
+          if [ -n "$PUBLIC_URL" ]; then
+            curl -sf --max-time 20 "${PUBLIC_URL%/}/api/v1/system/info" > /dev/null \
+              && echo "Reachable at $PUBLIC_URL" \
+              || echo "::warning::$PUBLIC_URL did not answer from GitHub (DNS, TLS or firewall); the server itself is up."
+          fi
+
+      - name: Clean up
+        if: always()
+        run: rm -f deployment.env /tmp/release.tgz ~/.ssh/deploy_key

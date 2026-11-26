@@ -4,18 +4,28 @@ import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 import { reporting } from '@/lib/api'
 import { exportToExcel } from '@/lib/exportExcel'
-import type { CounterPerformance } from '@/types'
+import type { CounterPerformance, DeviceActivity } from '@/types'
 import { Button, Card, CardBody, CardHeader, StatCard, Spinner, Empty } from '@/components/ui'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 
 export default function PerformancePage() {
   const { id } = useParams<{ id: string }>()
   const [counters, setCounters] = useState<CounterPerformance[]>([])
+  const [devices, setDevices] = useState<DeviceActivity[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    reporting.getCounterPerformance(id).then(data => setCounters(data ?? [])).finally(() => setLoading(false))
+    Promise.all([
+      reporting.getCounterPerformance(id).then(data => setCounters(data ?? [])),
+      reporting.getDeviceActivity(id).then(data => setDevices(data ?? [])).catch(() => setDevices([])),
+    ]).finally(() => setLoading(false))
   }, [id])
+
+  // "NFC, OTP" → "Card + own sign-in"
+  function methods(m: string) {
+    if (!m) return '—'
+    return m.split(', ').map(x => x === 'NFC' ? 'Card' : x === 'OTP' ? 'Own sign-in' : x).join(' + ')
+  }
 
   if (loading) return <div className="flex justify-center items-center h-64"><Spinner size="lg" /></div>
 
@@ -41,9 +51,25 @@ export default function PerformancePage() {
       'Recount Rate %': c.recount_rate_pct,
       'Recounts Accepted': c.recount_accepted,
       'Recounts Rejected': c.recount_rejected,
+      'Identified by': methods(c.auth_methods),
+      'Shared devices used': c.devices_used,
       'Last Active': c.last_activity ? new Date(c.last_activity).toLocaleString() : '',
     }))
     exportToExcel(rows, 'Counter Performance', `performance-session-${id}`)
+  }
+
+  function handleDeviceExport() {
+    const rows = devices.map(d => ({
+      'Device': d.device_name,
+      'Identified by': d.auth_method === 'NFC' ? 'Card' : 'Own sign-in',
+      'Counters': d.counters,
+      'Count lines': d.count_lines,
+      'Items': d.items_counted,
+      'Bins': d.bins_counted,
+      'First count': d.first_count ? new Date(d.first_count).toLocaleString() : '',
+      'Last count': d.last_count ? new Date(d.last_count).toLocaleString() : '',
+    }))
+    exportToExcel(rows, 'Counting by device', `devices-session-${id}`)
   }
 
   return (
@@ -90,7 +116,7 @@ export default function PerformancePage() {
             <table className="w-full text-sm">
               <thead className="bg-gray-50 border-b border-gray-100">
                 <tr>
-                  {['Counter', 'Mobile', 'Items', 'Bins', 'Recount rate', 'Accepted', 'Rejected', 'Last active'].map(h => (
+                  {['Counter', 'Mobile', 'Items', 'Bins', 'Recount rate', 'Accepted', 'Rejected', 'Signed in by', 'Last active'].map(h => (
                     <th key={h} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">{h}</th>
                   ))}
                 </tr>
@@ -105,9 +131,56 @@ export default function PerformancePage() {
                     <td className="px-4 py-3 text-gray-700">{c.recount_rate_pct}%</td>
                     <td className="px-4 py-3 text-green-600 font-medium">{c.recount_accepted}</td>
                     <td className="px-4 py-3 text-red-500 font-medium">{c.recount_rejected}</td>
+                    <td className="px-4 py-3 text-gray-600 text-xs">
+                      {methods(c.auth_methods)}
+                      {c.devices_used > 0 && <span className="text-gray-400"> · {c.devices_used} device{c.devices_used !== 1 ? 's' : ''}</span>}
+                    </td>
                     <td className="px-4 py-3 text-gray-400 text-xs">
                       {c.last_activity ? new Date(c.last_activity).toLocaleString() : '—'}
                     </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </CardBody>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-sm font-semibold text-gray-700">Counting by device</h2>
+              <p className="text-xs text-gray-500 mt-0.5">Shared devices (NFC cards) and counters on their own sign-in</p>
+            </div>
+            {devices.length > 0 && <Button size="sm" variant="secondary" onClick={handleDeviceExport}>Export Excel</Button>}
+          </div>
+        </CardHeader>
+        <CardBody className="p-0">
+          {devices.length === 0 ? (
+            <Empty message="No count lines yet." />
+          ) : (
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 border-b border-gray-100">
+                <tr>
+                  {['Device', 'Counters', 'Lines', 'Items', 'Bins', 'First count', 'Last count'].map(h => (
+                    <th key={h} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {devices.map(d => (
+                  <tr key={d.device_id ?? 'own'} className="hover:bg-gray-50">
+                    <td className="px-4 py-3 font-medium text-gray-900">
+                      {d.device_name}
+                      {d.auth_method === 'NFC' && <span className="ml-2 text-xs font-normal text-teal-600">card</span>}
+                    </td>
+                    <td className="px-4 py-3 text-gray-600 text-xs">{d.counters}</td>
+                    <td className="px-4 py-3 text-gray-700">{d.count_lines}</td>
+                    <td className="px-4 py-3 font-semibold text-teal-600">{d.items_counted}</td>
+                    <td className="px-4 py-3 text-gray-700">{d.bins_counted}</td>
+                    <td className="px-4 py-3 text-gray-400 text-xs">{d.first_count ? new Date(d.first_count).toLocaleString() : '—'}</td>
+                    <td className="px-4 py-3 text-gray-400 text-xs">{d.last_count ? new Date(d.last_count).toLocaleString() : '—'}</td>
                   </tr>
                 ))}
               </tbody>

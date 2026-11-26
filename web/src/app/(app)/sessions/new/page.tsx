@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { sessions, stores, ls } from '@/lib/api'
 import type { Store } from '@/types'
 import { Button, Card, CardBody, CardHeader, Spinner } from '@/components/ui'
+import { useErp } from '@/lib/erp'
 
 const SESSION_TYPES = [
   { value: 'FLOOR',      label: 'Floor'                  },
@@ -29,6 +30,7 @@ type Worksheet = {
 
 export default function NewSessionPage() {
   const router = useRouter()
+  const erp = useErp()
   const [storeList, setStoreList]         = useState<Store[]>([])
   const [allWorksheets, setAllWorksheets] = useState<Worksheet[]>([])
   const [wsLoading, setWsLoading]         = useState(true)
@@ -55,7 +57,7 @@ export default function NewSessionPage() {
         setWsError('')
       })
       .catch((err: unknown) => {
-        setWsError(err instanceof Error ? err.message : 'Could not load worksheets from LS')
+        setWsError(err instanceof Error ? err.message : 'Could not load them from the ERP')
       })
       .finally(() => setWsLoading(false))
   }, [])
@@ -146,20 +148,20 @@ export default function NewSessionPage() {
             {/* Worksheet */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                LS worksheet
+                {erp.short} {erp.worksheet}
                 <span className="ml-1 font-normal text-gray-400">(optional — can be set later)</span>
               </label>
 
               {wsLoading ? (
                 <div className="flex items-center gap-2 text-sm text-gray-400 py-2">
-                  <Spinner size="sm" /> Checking LS for available worksheets…
+                  <Spinner size="sm" /> Checking {erp.short} for available {erp.worksheet}s…
                 </div>
               ) : wsError ? (
                 <p className="text-xs text-amber-600 py-1">
-                  {wsError} — you can link a worksheet from the session page once LS is reachable.
+                  {wsError} — you can link a {erp.worksheet} from the session page once {erp.short} is reachable.
                 </p>
               ) : !form.store_id ? (
-                <p className="text-xs text-gray-400 py-1">Select a store to see available worksheets.</p>
+                <p className="text-xs text-gray-400 py-1">Select a store to see available {erp.worksheet}s.</p>
               ) : filteredWorksheets.length > 0 ? (
                 <select
                   value={form.worksheet_seq_no}
@@ -175,7 +177,7 @@ export default function NewSessionPage() {
                 </select>
               ) : (
                 <p className="text-xs text-gray-400 py-1">
-                  No worksheets found for this store in LS. You can link one later.
+                  No {erp.worksheet}s found for this store in {erp.short}. You can link one later.
                 </p>
               )}
             </div>

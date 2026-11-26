@@ -74,7 +74,7 @@ func (h *Handler) RequestOTP(c *gin.Context) {
 		return
 	}
 	if !allowed {
-		c.JSON(http.StatusForbidden, gin.H{"error": "this number is not on a stock count; ask your supervisor to add you"})
+		c.JSON(http.StatusForbidden, gin.H{"error": "this number is not on a stock count or set up for label printing; ask your supervisor to add you"})
 		return
 	}
 	otp, err := h.svc.GenerateOTP(c.Request.Context(), req.Mobile)
@@ -82,7 +82,7 @@ func (h *Handler) RequestOTP(c *gin.Context) {
 		c.JSON(http.StatusTooManyRequests, gin.H{"error": err.Error()})
 		return
 	}
-	if err := h.smsSvc.Send(c.Request.Context(), req.Mobile, "Your StockCount OTP is: "+otp+". Valid for 10 minutes."); err != nil {
+	if err := h.smsSvc.Send(c.Request.Context(), req.Mobile, "Your Vantage Suite OTP is: "+otp+". Valid for 10 minutes."); err != nil {
 		// 11 Oct 2026 — the OTP is logged only when the SMS did not go, so a supervisor can
 		// read it out; a sent OTP never reaches the log.
 		log.Printf("WARN [RequestOTP] SMS send failed for %s: %v — OTP %s is still valid", req.Mobile, err, otp)
@@ -119,5 +119,6 @@ func (h *Handler) VerifyOTP(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to issue token"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"token": token, "counter_id": counter.ID, "counter_name": counter.Name})
+	c.JSON(http.StatusOK, gin.H{"token": token, "counter_id": counter.ID, "counter_name": counter.Name,
+		"can_print_labels": counter.CanPrintLabels})
 }

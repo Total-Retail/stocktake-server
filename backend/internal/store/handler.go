@@ -2,12 +2,14 @@ package store
 
 import (
 	"encoding/csv"
+	"errors"
 	"fmt"
 	"html"
 	"net/http"
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 type Handler struct{ svc Service }
@@ -54,7 +56,7 @@ func (h *Handler) CreateStore(c *gin.Context) {
 	}
 	created, err := h.svc.CreateStore(c.Request.Context(), s)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		storeError(c, err)
 		return
 	}
 	c.JSON(http.StatusCreated, created)
@@ -69,10 +71,22 @@ func (h *Handler) UpdateStore(c *gin.Context) {
 	s.ID = c.Param("id")
 	updated, err := h.svc.UpdateStore(c.Request.Context(), s)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		storeError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, updated)
+}
+
+// storeError: a store code in use is a 409 with a sentence, not a database error.
+func storeError(c *gin.Context, err error) {
+	switch {
+	case errors.Is(err, ErrStoreCodeInUse):
+		c.JSON(http.StatusConflict, gin.H{"error": "Another store already has this store code. Pick another code, or edit that store.", "code": "store_code_in_use"})
+	case errors.Is(err, gorm.ErrRecordNotFound):
+		c.JSON(http.StatusNotFound, gin.H{"error": "store not found"})
+	default:
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	}
 }
 
 func (h *Handler) GetLayout(c *gin.Context) {

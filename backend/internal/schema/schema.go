@@ -7,6 +7,7 @@ import (
 	"github.com/totalretail/stocktake/internal/auth"
 	"github.com/totalretail/stocktake/internal/counting"
 	"github.com/totalretail/stocktake/internal/db"
+	"github.com/totalretail/stocktake/internal/devices"
 	"github.com/totalretail/stocktake/internal/session"
 	"github.com/totalretail/stocktake/internal/settings"
 	"github.com/totalretail/stocktake/internal/store"
@@ -21,7 +22,7 @@ func Migrate(database *gorm.DB) error {
 	if err := db.RunSchemaRenames(database); err != nil {
 		return err
 	}
-	return database.AutoMigrate(
+	if err := database.AutoMigrate(
 		&store.Store{},
 		&store.Area{},
 		&store.Aisle{},
@@ -37,5 +38,10 @@ func Migrate(database *gorm.DB) error {
 		&variance.VarianceFlag{},
 		&variance.RecountDecision{},
 		&settings.VarianceSetting{},
-	)
+		&devices.Device{},
+		&devices.CounterTag{},
+	); err != nil {
+		return err
+	}
+	return devices.EnsureIndexes(database)
 }

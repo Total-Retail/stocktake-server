@@ -5,6 +5,7 @@ import { useParams } from 'next/navigation'
 import { variance as varianceApi } from '@/lib/api'
 import { exportToExcel } from '@/lib/exportExcel'
 import type { AuditLine } from '@/types'
+import { AUTH_METHOD_LABELS } from '@/types'
 import { Button, Card, CardBody, Spinner, Empty } from '@/components/ui'
 
 export default function AuditPage() {
@@ -23,7 +24,8 @@ export default function AuditPage() {
         l.item_no.toLowerCase().includes(q) ||
         l.description.toLowerCase().includes(q) ||
         l.bin_code.toLowerCase().includes(q) ||
-        l.counter_name.toLowerCase().includes(q),
+        l.counter_name.toLowerCase().includes(q) ||
+        (l.device_name ?? '').toLowerCase().includes(q),
       )
     : lines
 
@@ -33,6 +35,8 @@ export default function AuditPage() {
       'Description': l.description,
       'Bin': l.bin_code,
       'Counter': l.counter_name,
+      'Identified by': AUTH_METHOD_LABELS[l.auth_method] ?? l.auth_method,
+      'Device': l.device_name ?? '',
       'Quantity': l.quantity,
       'Round': l.round_no === 0 ? 'Initial' : `Recount ${l.round_no}`,
       'Counted At': l.counted_at ? new Date(l.counted_at).toLocaleString() : '',
@@ -47,12 +51,12 @@ export default function AuditPage() {
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-xl font-semibold text-gray-900">Audit View</h1>
-          <p className="text-sm text-gray-500 mt-0.5">All individual count lines with counter identity and timestamp</p>
+          <p className="text-sm text-gray-500 mt-0.5">All individual count lines with counter identity, device and timestamp</p>
         </div>
         <div className="flex items-center gap-2">
           <input
             type="search"
-            placeholder="Search item, bin, counter…"
+            placeholder="Search item, bin, counter, device…"
             value={filter}
             onChange={e => setFilter(e.target.value)}
             className="px-3 py-2 border border-gray-300 rounded-lg text-sm w-56 focus:outline-none focus:ring-2 focus:ring-teal-500"
@@ -71,7 +75,7 @@ export default function AuditPage() {
             <table className="w-full text-sm">
               <thead className="bg-gray-50 border-b border-gray-100">
                 <tr>
-                  {['Item no.', 'Description', 'Bin', 'Counter', 'Qty', 'Round', 'Counted at'].map(h => (
+                  {['Item no.', 'Description', 'Bin', 'Counter', 'Device', 'Qty', 'Round', 'Counted at'].map(h => (
                     <th key={h} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">{h}</th>
                   ))}
                 </tr>
@@ -83,6 +87,11 @@ export default function AuditPage() {
                     <td className="px-4 py-2.5 text-gray-900">{line.description}</td>
                     <td className="px-4 py-2.5 text-gray-600">{line.bin_code}</td>
                     <td className="px-4 py-2.5 text-gray-600">{line.counter_name}</td>
+                    <td className="px-4 py-2.5 text-xs">
+                      {line.auth_method === 'NFC'
+                        ? <span className="text-gray-600" title="Tapped an NFC card on a shared device">{line.device_name ?? 'Shared device'} · card</span>
+                        : <span className="text-gray-400" title="Signed in with phone + OTP">Own sign-in</span>}
+                    </td>
                     <td className="px-4 py-2.5 font-semibold text-gray-900">{line.quantity}</td>
                     <td className="px-4 py-2.5 text-gray-500 text-xs">
                       {line.round_no === 0 ? 'Initial' : `Recount ${line.round_no}`}

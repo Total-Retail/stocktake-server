@@ -69,11 +69,13 @@ func (s *service) GetAudit(ctx context.Context, sessionID string) ([]AuditLine, 
 	var lines []AuditLine
 	err := s.db.WithContext(ctx).Raw(`
 		SELECT si.item_no, si.description, b.bin_code, c.name AS counter_name,
-		       cl.quantity, cl.round_no, cl.counted_at
+		       cl.quantity, cl.round_no, cl.counted_at,
+		       cl.auth_method, d.name AS device_name
 		FROM count_lines cl
 		JOIN session_items si ON si.session_id = cl.session_id AND si.item_no = cl.item_no
 		JOIN bins b ON b.id = cl.bin_id
 		JOIN counters c ON c.id = cl.counter_id
+		LEFT JOIN devices d ON d.id = cl.device_id
 		WHERE cl.session_id = ?
 		ORDER BY si.item_no, cl.round_no, cl.counted_at`, sessionID).Scan(&lines).Error
 	return lines, err

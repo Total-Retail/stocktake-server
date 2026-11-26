@@ -4,11 +4,13 @@ import { useEffect, useState } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import { stores, ls } from '@/lib/api'
 import { Button, Card, CardBody, CardHeader, Spinner } from '@/components/ui'
+import { useErp } from '@/lib/erp'
 
 type LSStore = { code: string; name: string }
 
 export default function StoreEditPage() {
   const router = useRouter()
+  const erp = useErp()
   const { id } = useParams<{ id: string }>()
   const [lsStores, setLsStores]   = useState<LSStore[]>([])
   const [lsLoading, setLsLoading] = useState(true)
@@ -91,12 +93,12 @@ export default function StoreEditPage() {
             {/* LS Store picker */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                LS store
+                {erp.short} store
                 <span className="ml-1 font-normal text-gray-400">(select to auto-fill)</span>
               </label>
               {lsLoading ? (
                 <div className="flex items-center gap-2 text-sm text-gray-400 py-2">
-                  <Spinner size="sm" /> Loading stores from LS…
+                  <Spinner size="sm" /> Loading stores from {erp.short}…
                 </div>
               ) : lsStores.length > 0 ? (
                 <select
@@ -104,7 +106,7 @@ export default function StoreEditPage() {
                   onChange={e => handleLSStoreSelect(e.target.value)}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
                 >
-                  <option value="">Select from LS…</option>
+                  <option value="">Select from {erp.short}…</option>
                   {lsStores.map(s => (
                     <option key={s.code} value={s.code}>
                       {s.name} ({s.code})
@@ -113,7 +115,7 @@ export default function StoreEditPage() {
                 </select>
               ) : (
                 <p className="text-xs text-amber-600 py-1">
-                  Could not load stores from LS. Enter the LS store code manually below.
+                  Could not load stores from {erp.short}. Enter the {erp.short} store code manually below.
                 </p>
               )}
             </div>
@@ -145,14 +147,14 @@ export default function StoreEditPage() {
 
             {/* LS store code */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">LS store code</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">{erp.short} store code</label>
               <input
                 type="text"
                 value={form.ls_store_code}
                 onChange={e => set('ls_store_code', e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
               />
-              <p className="text-xs text-gray-400 mt-1">Must match the store code in LS Commerce Service</p>
+              <p className="text-xs text-gray-400 mt-1">Must match the store code in {erp.storeSource}</p>
             </div>
 
             {/* Location code */}
@@ -168,7 +170,7 @@ export default function StoreEditPage() {
                 placeholder="e.g. HQ-001"
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
               />
-              <p className="text-xs text-gray-400 mt-1">LS location code if applicable</p>
+              <p className="text-xs text-gray-400 mt-1">{erp.short} location code if applicable</p>
             </div>
 
             {success && <p className="text-sm text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2">{success}</p>}

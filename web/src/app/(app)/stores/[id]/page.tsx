@@ -6,8 +6,10 @@ import Link from 'next/link'
 import { stores } from '@/lib/api'
 import type { Store, StoreLayout, Area, Aisle, Bin } from '@/types'
 import { Button, Card, CardBody, CardHeader, Spinner, Empty } from '@/components/ui'
+import { useErp } from '@/lib/erp'
 
 export default function StoreLayoutPage() {
+  const erp = useErp()
   const { id } = useParams<{ id: string }>()
   const [store, setStore] = useState<Store | null>(null)
   const [layout, setLayout] = useState<StoreLayout>({ areas: [], aisles: [], bins: [] })
@@ -96,7 +98,7 @@ export default function StoreLayoutPage() {
           <h1 className="text-xl font-semibold text-gray-900">{store?.store_name}</h1>
           <p className="text-sm text-gray-500 mt-0.5">
             {store?.store_code}
-            {store?.ls_store_code && <span className="ml-2 text-gray-400">· LS: {store.ls_store_code}</span>}
+            {store?.ls_store_code && <span className="ml-2 text-gray-400">· {erp.short}: {store.ls_store_code}</span>}
             {store?.location_code && <span className="ml-2 text-gray-400">· Location: {store.location_code}</span>}
             {store && !store.active && <span className="ml-2 text-red-500 font-medium">· Inactive</span>}
           </p>

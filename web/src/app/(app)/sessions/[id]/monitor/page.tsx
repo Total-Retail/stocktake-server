@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from 'react'
 import { useParams } from 'next/navigation'
-import { sessions, reporting } from '@/lib/api'
+import { sessions, reporting, devices as devicesApi } from '@/lib/api'
 import { useSessionSocket } from '@/lib/useSessionSocket'
 import type { Session, Counter, WSEvent } from '@/types'
 import { Card, CardHeader, CardBody, Badge, StatusBadge, Spinner } from '@/components/ui'
@@ -23,10 +23,15 @@ export default function MonitorPage() {
   // Build a name lookup from the counters array so event descriptions can show
   // human-readable names instead of UUIDs.
   const counterNamesById = Object.fromEntries(counters.map(c => [c.id, c.name]))
+  // Shared devices by id, so a count made with an NFC card says on which device.
+  const [deviceNamesById, setDeviceNamesById] = useState<Record<string, string>>({})
 
   useEffect(() => {
     sessions.get(id).then(setSession)
     sessions.listCounters(id).then(setCounters)
+    devicesApi.list()
+      .then(list => setDeviceNamesById(Object.fromEntries(list.map(d => [d.id, d.name]))))
+      .catch(() => {})
     // Seed initial item-count stats from the reporting API
     reporting.getCounterPerformance(id).then(perf => {
       const initial: Record<string, number> = {}
@@ -62,11 +67,14 @@ export default function MonitorPage() {
     const p = e.payload
     const counterName = (p.counter_id ? counterNamesById[p.counter_id as string] : null)
       ?? (p.counter_id as string ?? 'Unknown counter')
+    const where = p.auth_method === 'NFC'
+      ? ` (card on ${deviceNamesById[p.device_id as string] ?? 'a shared device'})`
+      : ''
     switch (e.type) {
       case 'count.submitted':
-        return `${counterName} submitted ${p.count ?? '?'} item${(p.count as number) !== 1 ? 's' : ''}`
+        return `${counterName} submitted ${p.count ?? '?'} item${(p.count as number) !== 1 ? 's' : ''}${where}`
       case 'bin.completed':
-        return `${counterName} completed a bin`
+        return `${counterName} completed a bin${where}`
       case 'counter.connected':
         return `${counterName} connected`
       case 'counter.disconnected':

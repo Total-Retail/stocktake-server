@@ -1,5 +1,17 @@
 const API_BASE = '/api/v1'
 
+// ApiError carries the status and the server's JSON body, so a caller can act on a
+// specific refusal (e.g. 409 tag_in_use names who holds the card).
+export class ApiError extends Error {
+  status: number
+  body: Record<string, unknown>
+  constructor(message: string, status: number, body: Record<string, unknown>) {
+    super(message)
+    this.status = status
+    this.body = body
+  }
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = typeof window !== 'undefined' ? localStorage.getItem('st_token') : null
   const res = await fetch(`${API_BASE}${path}`, {
@@ -12,7 +24,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   })
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))
-    throw new Error(body.error ?? `Request failed: ${res.status}`)
+    throw new ApiError(body.error ?? `Request failed: ${res.status}`, res.status, body)
   }
   return res.json()
 }
@@ -127,6 +139,46 @@ export const reporting = {
     request<import('@/types').CounterPerformance[]>(`/sessions/${sessionId}/counter-performance`),
   getCounterDetail: (sessionId: string, counterId: string) =>
     request<import('@/types').CounterPerformance>(`/sessions/${sessionId}/counter-performance/${counterId}`),
+  getDeviceActivity: (sessionId: string) =>
+    request<import('@/types').DeviceActivity[]>(`/sessions/${sessionId}/device-activity`),
+}
+
+// ── Counters & NFC cards ──────────────────────────────────────────────────────
+export const counters = {
+  // With sessionId: the counters on that session. Each comes with its active card.
+  list: (sessionId?: string, q?: string) => {
+    const params = new URLSearchParams()
+    if (sessionId) params.set('session_id', sessionId)
+    if (q) params.set('q', q)
+    const qs = params.toString()
+    return request<import('@/types').Counter[]>(`/counters${qs ? `?${qs}` : ''}`)
+  },
+  // Staff page: add a person (an existing number is updated instead) or change one.
+  create: (body: { name: string; mobile: string; can_print_labels: boolean }) =>
+    request<import('@/types').Counter>('/counters', { method: 'POST', body: JSON.stringify(body) }),
+  update: (counterId: string, body: { name?: string; mobile?: string; can_print_labels?: boolean }) =>
+    request<import('@/types').Counter>(`/counters/${counterId}`, { method: 'PUT', body: JSON.stringify(body) }),
+  // force moves a card that is linked to someone else.
+  linkTag: (counterId: string, uid: string, label: string, force = false) =>
+    request<import('@/types').Counter>(`/counters/${counterId}/tag`, {
+      method: 'PUT',
+      body: JSON.stringify({ uid, label, force }),
+    }),
+  unlinkTag: (counterId: string) =>
+    request(`/counters/${counterId}/tag`, { method: 'DELETE' }),
+  tagOwner: (uid: string) =>
+    request<import('@/types').Counter>(`/tags/${encodeURIComponent(uid)}`),
+}
+
+// ── Shared counting devices ───────────────────────────────────────────────────
+// Devices are enrolled from the device itself (a supervisor signs in on the app);
+// here they are listed, renamed, moved to a store and revoked.
+export const devices = {
+  list: () => request<import('@/types').Device[]>('/devices'),
+  update: (id: string, data: { name?: string; store_id?: string | null }) =>
+    request<import('@/types').Device>(`/devices/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  revoke: (id: string) =>
+    request(`/devices/${id}/revoke`, { method: 'POST' }),
 }
 
 // ── Admin users ───────────────────────────────────────────────────────────────

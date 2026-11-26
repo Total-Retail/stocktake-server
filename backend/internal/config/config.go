@@ -25,6 +25,10 @@ type Config struct {
 	LSPassword  string
 	LSCompanyID string
 
+	// DeploymentName is what the device setup screen shows once it reaches this server
+	// ("SPAR Yellowcob", "TV Sales & Home"). Optional.
+	DeploymentName string
+
 	// ERPBackend selects the ERP the server talks to: ERPBackendLS or ERPBackendVantage.
 	ERPBackend string
 
@@ -35,10 +39,13 @@ type Config struct {
 	VantageClientID     string
 	VantageClientSecret string
 
-	OTPExpiryMinutes     int
-	OTPMaxRequests       int
-	CounterTokenHours    int
-	AdminTokenHours      int
+	OTPExpiryMinutes  int
+	OTPMaxRequests    int
+	CounterTokenHours int
+	AdminTokenHours   int
+	// DeviceTokenDays: how long a shared (NFC card) device's token lives. Revoking the
+	// device in the portal cuts it off at once whatever this says.
+	DeviceTokenDays      int
 	VarianceTolerancePct float64
 	// DocumentCheckMinutes: how often submitted sessions are checked for their posted
 	// ERP document (C4/H2). 0 turns the check off.
@@ -50,6 +57,14 @@ const (
 	ERPBackendLS      = "ls"
 	ERPBackendVantage = "vantage"
 )
+
+// ERPLabel is the ERP's name as the apps show it.
+func (c *Config) ERPLabel() string {
+	if c.ERPBackend == ERPBackendVantage {
+		return "Vantage Retail"
+	}
+	return "LS Central"
+}
 
 func Load() *Config {
 	_ = godotenv.Load()
@@ -79,6 +94,7 @@ func Load() *Config {
 		LSPassword:  lsEnv("LS_PASSWORD", "placeholder"),
 		LSCompanyID: lsEnv("LS_COMPANY_ID", "placeholder"),
 
+		DeploymentName:      os.Getenv("DEPLOYMENT_NAME"),
 		ERPBackend:          erpBackend,
 		VantageTenantID:     os.Getenv("VANTAGE_TENANT_ID"),
 		VantageEnvironment:  os.Getenv("VANTAGE_ENVIRONMENT"),
@@ -90,6 +106,7 @@ func Load() *Config {
 		OTPMaxRequests:       getEnvInt("OTP_MAX_REQUESTS", 3),
 		CounterTokenHours:    getEnvInt("COUNTER_TOKEN_HOURS", 12),
 		AdminTokenHours:      getEnvInt("ADMIN_TOKEN_HOURS", 8),
+		DeviceTokenDays:      getEnvInt("DEVICE_TOKEN_DAYS", 365),
 		VarianceTolerancePct: getEnvFloat("VARIANCE_TOLERANCE_PCT", 2.0),
 		DocumentCheckMinutes: int(getEnvFloat("DOCUMENT_CHECK_INTERVAL_MINUTES", 5)),
 		ExportDir:            getEnv("EXPORT_DIR", "./exports"),

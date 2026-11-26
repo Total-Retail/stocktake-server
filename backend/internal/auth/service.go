@@ -36,12 +36,19 @@ type TokenType string
 const (
 	TokenAdmin   TokenType = "admin"
 	TokenCounter TokenType = "counter"
+	// TokenDevice is held by a device enrolled for shared counting (NFC cards). It says
+	// which device, not which counter: the counter tapped in is sent per request in the
+	// X-Counter-Id header (middleware.ResolveCounter).
+	TokenDevice TokenType = "device"
 )
 
 type Claims struct {
 	UserID       string    `json:"user_id"`
 	TokenType    TokenType `json:"token_type"`
 	IsSuperAdmin bool      `json:"is_super_admin,omitempty"`
+	// DeviceVersion is the device's token version (device tokens only); re-enrolling or
+	// revoking the device bumps it, so older tokens stop working.
+	DeviceVersion int `json:"dv,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -71,6 +78,22 @@ func (s *Service) IssueToken(userID string, tokenType TokenType, expiryHours int
 		IsSuperAdmin: super,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Duration(expiryHours) * time.Hour)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+		},
+	}
+	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(s.jwtSecret)
+}
+
+// IssueDeviceToken issues a shared device's token. It lives long (the device stays on a
+// charger in the store); it is cut off by revoking the device, which the middleware
+// checks on every request.
+func (s *Service) IssueDeviceToken(deviceID string, version, expiryDays int) (string, error) {
+	claims := Claims{
+		UserID:        deviceID,
+		TokenType:     TokenDevice,
+		DeviceVersion: version,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Duration(expiryDays) * 24 * time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 		},
 	}

@@ -112,6 +112,12 @@ Copy `.env.example` to `.env` and fill in:
 | `LS_USERNAME` | BC service user |
 | `LS_PASSWORD` | BC service user password |
 | `LS_COMPANY_ID` | BC company ID |
+| `ERP_BACKEND` | `ls` (LS Central) or `vantage` (Vantage Retail) |
+| `DEPLOYMENT_NAME` | Name the app's Server setup screen shows for this server (optional) |
+| `DEVICE_TOKEN_DAYS` | Lifetime of a shared (NFC card) device's token, default 365; revoking the device cuts it off at once |
+
+Shared counting devices with NFC counter cards, and the app's Server setup screen
+(`GET /api/v1/system/info`), are described in `../NFC_Shared_Devices.md`.
 
 ---
 

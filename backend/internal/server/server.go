@@ -12,6 +12,8 @@ import (
 	"github.com/totalretail/stocktake/internal/auth"
 	"github.com/totalretail/stocktake/internal/config"
 	"github.com/totalretail/stocktake/internal/counting"
+	"github.com/totalretail/stocktake/internal/devices"
+	"github.com/totalretail/stocktake/internal/labels"
 	"github.com/totalretail/stocktake/internal/ls"
 	"github.com/totalretail/stocktake/internal/reporting"
 	"github.com/totalretail/stocktake/internal/session"
@@ -60,6 +62,13 @@ func New(cfg *config.Config, db *gorm.DB) *Server {
 	varianceHandler  := variance.NewHandler(varianceSvc, cfg.VarianceTolerancePct)
 	reportingHandler := reporting.NewHandler(reportSvc)
 	settingsHandler  := settings.NewHandler(settingsSvc)
+	devicesHandler   := devices.NewHandler(db, authSvc, cfg.DeviceTokenDays)
+	// Label worksheets exist only on Vantage (Business Central); nil on LS Central.
+	var labelBackend labels.Backend
+	if vc, ok := erpClient.(*vantage.Client); ok {
+		labelBackend = vc
+	}
+	labelsHandler    := labels.NewHandler(db, labelBackend)
 
 	router := gin.Default()
 	router.Use(corsMiddleware())
@@ -72,6 +81,9 @@ func New(cfg *config.Config, db *gorm.DB) *Server {
 
 	// Public routes
 	authHandler.RegisterRoutes(api)
+	// What this server is, for the counting app's setup screen (no sign-in: the device
+	// asks before anyone has signed in, to check it reached the right server).
+	api.GET("/system/info", systemInfo(cfg))
 
 	// Admin-authenticated routes
 	adminRoutes := api.Group("", middleware.RequireAuth(authSvc, auth.TokenAdmin))
@@ -81,11 +93,23 @@ func New(cfg *config.Config, db *gorm.DB) *Server {
 	reportingHandler.RegisterRoutes(adminRoutes)
 	adminUserHandler.RegisterAdminUserRoutes(adminRoutes)
 	settingsHandler.RegisterRoutes(adminRoutes)
+	devicesHandler.RegisterAdminRoutes(adminRoutes)
 
-	// Counter-authenticated routes
-	counterRoutes := api.Group("", middleware.RequireAuth(authSvc, auth.TokenCounter), middleware.RequireSessionCounter(db))
+	// Shared-device routes (device token, before a counter has tapped in): who am I, the
+	// carded counters it may let in (for offline taps), and resolving a tapped card.
+	deviceRoutes := api.Group("/device", middleware.RequireAuth(authSvc, auth.TokenDevice), middleware.RequireActiveDevice(db))
+	devicesHandler.RegisterDeviceRoutes(deviceRoutes)
+
+	// Counter routes: a counter's own token (phone + OTP), or a shared device's token with
+	// the tapped-in counter in X-Counter-Id (NFC card). Either way "user_id" is the counter.
+	counterRoutes := api.Group("",
+		middleware.RequireAuth(authSvc, auth.TokenCounter, auth.TokenDevice),
+		middleware.ResolveCounter(db),
+		middleware.RequireSessionCounter(db))
 	countingHandler.RegisterRoutes(counterRoutes)
 	sessionHandler.RegisterCounterRoutes(counterRoutes)
+	// Who is signed in (/counter/me) and Label Printing (/labels/…), 24 Nov 2026.
+	labelsHandler.RegisterCounterRoutes(counterRoutes)
 
 	// WebSocket (admin only)
 	router.GET("/ws/sessions/:id", middleware.RequireAuth(authSvc, auth.TokenAdmin), hub.ServeWS)
@@ -114,6 +138,25 @@ func newERPBackend(cfg *config.Config) ls.Backend {
 	}
 }
 
+// systemInfo answers GET /api/v1/system/info.
+func systemInfo(cfg *config.Config) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		features := []string{"otp_login", "nfc_shared_devices"}
+		if cfg.ERPBackend == config.ERPBackendVantage {
+			features = append(features, "label_worksheets")
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"service":         "stockcount",
+			"api_version":     2,
+			"erp_backend":     cfg.ERPBackend,
+			"erp_label":       cfg.ERPLabel(),
+			"deployment_name": cfg.DeploymentName,
+			"features":        features,
+			"server_time":     time.Now().UTC().Format(time.RFC3339),
+		})
+	}
+}
+
 func (s *Server) Run() error {
 	return s.router.Run(s.cfg.ServerAddr)
 }
@@ -122,7 +165,7 @@ func corsMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Header("Access-Control-Allow-Origin", "*")
 		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		c.Header("Access-Control-Allow-Headers", "Authorization, Content-Type")
+		c.Header("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Counter-Id, X-Device-Name")
 		if c.Request.Method == "OPTIONS" {
 			c.AbortWithStatus(204)
 			return

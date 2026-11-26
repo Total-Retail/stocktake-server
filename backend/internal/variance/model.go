@@ -51,4 +51,8 @@ type AuditLine struct {
 	Quantity    float64 `json:"quantity"`
 	RoundNo     int     `json:"round_no"`
 	CountedAt   string  `json:"counted_at"`
+	// Where the line was counted: "OTP" (counter's own sign-in) or "NFC" (card on a
+	// shared device), and the shared device's name.
+	AuthMethod string  `json:"auth_method"`
+	DeviceName *string `json:"device_name"`
 }

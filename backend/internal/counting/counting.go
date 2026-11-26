@@ -14,8 +14,8 @@ import (
 )
 
 type Service interface {
-	SubmitBatch(ctx context.Context, sessionID, counterID string, lines []CountLine) error
-	SubmitBin(ctx context.Context, sessionID, binID, counterID string) (*BinSubmission, error)
+	SubmitBatch(ctx context.Context, sessionID, counterID string, src Source, lines []CountLine) error
+	SubmitBin(ctx context.Context, sessionID, binID, counterID string, src Source) (*BinSubmission, error)
 	GetRecounts(ctx context.Context, sessionID, counterID string) ([]CountLine, error)
 }
 
@@ -40,13 +40,16 @@ func (s *service) checkSessionMutable(ctx context.Context, sessionID string) err
 	return nil
 }
 
-func (s *service) SubmitBatch(ctx context.Context, sessionID, counterID string, lines []CountLine) error {
+func (s *service) SubmitBatch(ctx context.Context, sessionID, counterID string, src Source, lines []CountLine) error {
 	if err := s.checkSessionMutable(ctx, sessionID); err != nil {
 		return err
 	}
 	for i := range lines {
 		lines[i].SessionID = sessionID
 		lines[i].CounterID = counterID
+		// Where the line came from is the server's to say, whatever the client sent.
+		lines[i].DeviceID = src.deviceID()
+		lines[i].AuthMethod = src.method()
 		if lines[i].CountedAt.IsZero() {
 			lines[i].CountedAt = time.Now()
 		}
@@ -59,11 +62,12 @@ func (s *service) SubmitBatch(ctx context.Context, sessionID, counterID string, 
 		Create(&lines).Error
 }
 
-func (s *service) SubmitBin(ctx context.Context, sessionID, binID, counterID string) (*BinSubmission, error) {
+func (s *service) SubmitBin(ctx context.Context, sessionID, binID, counterID string, src Source) (*BinSubmission, error) {
 	if err := s.checkSessionMutable(ctx, sessionID); err != nil {
 		return nil, err
 	}
-	sub := BinSubmission{SessionID: sessionID, BinID: binID, CounterID: counterID}
+	sub := BinSubmission{SessionID: sessionID, BinID: binID, CounterID: counterID,
+		DeviceID: src.deviceID(), AuthMethod: src.method()}
 	return &sub, s.db.WithContext(ctx).Create(&sub).Error
 }
 
@@ -100,6 +104,11 @@ func (h *Handler) RegisterRoutes(rg *gin.RouterGroup) {
 	rg.GET("/counter/sessions/:id/recounts", h.GetRecounts)
 }
 
+// source is where the request came from, as middleware.ResolveCounter settled it.
+func source(c *gin.Context) Source {
+	return Source{DeviceID: c.GetString("device_id"), AuthMethod: c.GetString("auth_method")}
+}
+
 func (h *Handler) SubmitBatch(c *gin.Context) {
 	var batch CountBatch
 	if err := c.ShouldBindJSON(&batch); err != nil {
@@ -108,7 +117,8 @@ func (h *Handler) SubmitBatch(c *gin.Context) {
 	}
 	counterID := c.GetString("user_id")
 	sessionID := c.Param("id")
-	if err := h.svc.SubmitBatch(c.Request.Context(), sessionID, counterID, batch.Lines); err != nil {
+	src := source(c)
+	if err := h.svc.SubmitBatch(c.Request.Context(), sessionID, counterID, src, batch.Lines); err != nil {
 		status := http.StatusInternalServerError
 		if isSessionLockedErr(err) {
 			status = http.StatusConflict
@@ -118,7 +128,8 @@ func (h *Handler) SubmitBatch(c *gin.Context) {
 	}
 	h.hub.Broadcast(sessionID, ws.Event{
 		Type: ws.EventCountSubmitted, SessionID: sessionID,
-		Payload: gin.H{"counter_id": counterID, "count": len(batch.Lines)},
+		Payload: gin.H{"counter_id": counterID, "count": len(batch.Lines),
+			"device_id": src.DeviceID, "auth_method": src.method()},
 	})
 	c.JSON(http.StatusOK, gin.H{"synced": len(batch.Lines)})
 }
@@ -127,7 +138,8 @@ func (h *Handler) SubmitBin(c *gin.Context) {
 	sessionID := c.Param("id")
 	binID     := c.Param("bin_id")
 	counterID := c.GetString("user_id")
-	sub, err := h.svc.SubmitBin(c.Request.Context(), sessionID, binID, counterID)
+	src := source(c)
+	sub, err := h.svc.SubmitBin(c.Request.Context(), sessionID, binID, counterID, src)
 	if err != nil {
 		status := http.StatusInternalServerError
 		if isSessionLockedErr(err) {
@@ -138,7 +150,8 @@ func (h *Handler) SubmitBin(c *gin.Context) {
 	}
 	h.hub.Broadcast(sessionID, ws.Event{
 		Type: ws.EventBinCompleted, SessionID: sessionID,
-		Payload: gin.H{"bin_id": binID, "counter_id": counterID},
+		Payload: gin.H{"bin_id": binID, "counter_id": counterID,
+			"device_id": src.DeviceID, "auth_method": src.method()},
 	})
 	c.JSON(http.StatusOK, sub)
 }

@@ -5,8 +5,10 @@ import Link from 'next/link'
 import { stores } from '@/lib/api'
 import type { Store } from '@/types'
 import { Button, Card, CardBody, Spinner, Empty } from '@/components/ui'
+import { useErp } from '@/lib/erp'
 
 export default function StoresPage() {
+  const erp = useErp()
   const [list, setList] = useState<Store[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -36,7 +38,7 @@ export default function StoresPage() {
             <table className="w-full text-sm">
               <thead className="bg-gray-50 border-b border-gray-100">
                 <tr>
-                  {['Name', 'Store code', 'LS store code', 'Layout', ''].map(h => (
+                  {['Name', 'Store code', `${erp.short} store code`, 'Layout', ''].map(h => (
                     <th key={h} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">{h}</th>
                   ))}
                 </tr>

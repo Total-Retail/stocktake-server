@@ -11,13 +11,21 @@ import (
 // an OTP became a counter, and a counter could read and post to any session.
 
 // CounterMayLogIn reports whether the mobile number belongs to a counter that is active
-// on at least one session.
+// on at least one session, or (24 Nov 2026) one allowed to print labels.
 func CounterMayLogIn(ctx context.Context, db *gorm.DB, mobile string) (bool, error) {
 	var n int64
 	err := db.WithContext(ctx).Raw(`
 		SELECT COUNT(*) FROM counters c
-		JOIN session_counters sc ON sc.counter_id = c.id AND sc.active
-		WHERE c.mobile_number = ?`, mobile).Scan(&n).Error
+		WHERE c.mobile_number = ?
+		  AND (c.can_print_labels OR EXISTS (
+		        SELECT 1 FROM session_counters sc WHERE sc.counter_id = c.id AND sc.active))`, mobile).Scan(&n).Error
+	return n > 0, err
+}
+
+// CounterCanPrintLabels reports whether the counter may use Label Printing.
+func CounterCanPrintLabels(ctx context.Context, db *gorm.DB, counterID string) (bool, error) {
+	var n int64
+	err := db.WithContext(ctx).Raw(`SELECT COUNT(*) FROM counters WHERE id::text = ? AND can_print_labels`, counterID).Scan(&n).Error
 	return n > 0, err
 }
 

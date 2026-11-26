@@ -60,6 +60,30 @@ export interface Counter {
   name: string
   mobile_number: string
   created_at: string
+  // May use Label Printing in the Vantage Suite app (GET /counters, Staff page).
+  can_print_labels?: boolean
+  // The counter's NFC card (GET /counters only): set when one is linked.
+  tag_uid?: string | null
+  tag_label?: string | null
+  tag_assigned_at?: string | null
+  tag_last_used_at?: string | null
+}
+
+// A counting device enrolled for shared (NFC card) counting.
+export interface Device {
+  id: string
+  name: string
+  install_id: string
+  store_id: string | null
+  store_name: string | null
+  model: string
+  app_version: string
+  active: boolean
+  enrolled_by: string
+  enrolled_by_name: string | null
+  enrolled_at: string
+  revoked_at: string | null
+  last_seen_at: string | null
 }
 
 export interface TheoreticalStock {
@@ -115,6 +139,17 @@ export interface AuditLine {
   quantity: number
   round_no: number
   counted_at: string
+  auth_method: AuthMethod
+  device_name: string | null
+}
+
+// How the counter on a count line was identified: own sign-in (phone + OTP) or an NFC
+// card tapped on a shared device.
+export type AuthMethod = 'OTP' | 'NFC'
+
+export const AUTH_METHOD_LABELS: Record<string, string> = {
+  OTP: 'Own sign-in',
+  NFC: 'NFC card',
 }
 
 export interface VarianceFlag {
@@ -146,6 +181,23 @@ export interface CounterPerformance {
   recount_accepted: number
   recount_rejected: number
   last_activity: string
+  auth_methods: string
+  devices_used: number
+  count_lines: number
+}
+
+// One device's share of a session (device_id null: counters on their own sign-in).
+export interface DeviceActivity {
+  device_id: string | null
+  device_name: string
+  auth_method: AuthMethod
+  count_lines: number
+  items_counted: number
+  bins_counted: number
+  counter_count: number
+  counters: string
+  first_count: string | null
+  last_count: string | null
 }
 
 export interface HourlyActivity {
